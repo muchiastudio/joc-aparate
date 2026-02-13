@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="ro">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>League of Slots: Hextech Edition</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      /* Beaufort for LoL feel, Spiegel equivalent */
+      @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700;900&family=Beaufort+LoL:wght@700&family=Roboto:wght@400;500;700&display=swap');
+      
+      :root {
+        --hex-gold: #C8AA6E;
+        --hex-gold-light: #F0E6D2;
+        --hex-blue: #0AC8B9;
+        --hex-dark-blue: #005A82;
+        --void-dark: #010A13;
+        --noxus-red: #D13639;
+      }
+
+      body {
+        font-family: 'Roboto', sans-serif;
+        background-color: var(--void-dark);
+        overflow-x: hidden;
+        color: var(--hex-gold-light);
+      }
+
+      .font-lol {
+        font-family: 'Cinzel', serif;
+      }
+
+      /* Hextech Borders */
+      .hex-border {
+        border: 2px solid var(--hex-gold);
+        box-shadow: 0 0 15px rgba(200, 170, 110, 0.3), inset 0 0 20px rgba(0,0,0,0.8);
+        position: relative;
+      }
+      
+      .hex-border::after {
+        content: '';
+        position: absolute;
+        top: -4px; left: -4px; right: -4px; bottom: -4px;
+        border: 1px solid var(--hex-blue);
+        opacity: 0.5;
+        pointer-events: none;
+      }
+
+      /* Reel Animation */
+      .reel-spin {
+        animation: hex-blur 0.1s linear infinite;
+      }
+
+      @keyframes hex-blur {
+        0% { transform: translateY(-20%); filter: blur(4px); opacity: 0.7; }
+        100% { transform: translateY(20%); filter: blur(0); opacity: 1; }
+      }
+
+      /* Landing Bounce Animation - New */
+      .reel-land {
+        animation: land-bounce 0.4s ease-out forwards;
+      }
+
+      @keyframes land-bounce {
+        0% { transform: translateY(-50px); }
+        60% { transform: translateY(10px); }
+        80% { transform: translateY(-5px); }
+        100% { transform: translateY(0); }
+      }
+
+      .winning-rune {
+        animation: rune-pulse 1.5s infinite;
+        z-index: 20;
+      }
+
+      @keyframes rune-pulse {
+        0% { transform: scale(1); filter: drop-shadow(0 0 5px var(--hex-gold)); }
+        50% { transform: scale(1.15); filter: drop-shadow(0 0 20px var(--hex-gold)) brightness(1.3); }
+        100% { transform: scale(1); filter: drop-shadow(0 0 5px var(--hex-gold)); }
+      }
+      
+      .btn-hex {
+        clip-path: polygon(10% 0, 100% 0, 100% 70%, 90% 100%, 0 100%, 0 30%);
+      }
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "react/": "https://esm.sh/react@^19.2.4/",
+    "react": "https://esm.sh/react@^19.2.4",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.4/",
+    "lucide-react": "https://esm.sh/lucide-react@^0.564.0"
+  }
+}
+</script>
+<link rel="stylesheet" href="/index.css">
+</head>
+  <body>
+    <div id="root"></div>
+  <script type="module" src="/index.tsx"></script>
+</body>
+</html>
