@@ -110,6 +110,30 @@ class SynthAudioController {
     }
   }
 
+  public playJackpotWin() {
+    const ctx = this.getContext();
+    if (!ctx || this.isMuted) return;
+
+    // Siren / Alarm effect
+    const now = ctx.currentTime;
+    for(let i=0; i<8; i++) {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(800, now + i*0.2);
+        osc.frequency.linearRampToValueAtTime(1200, now + i*0.2 + 0.1);
+        osc.frequency.linearRampToValueAtTime(800, now + i*0.2 + 0.2);
+        
+        gain.gain.setValueAtTime(0.2, now + i*0.2);
+        gain.gain.linearRampToValueAtTime(0, now + i*0.2 + 0.2);
+        
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now + i*0.2);
+        osc.stop(now + i*0.2 + 0.2);
+    }
+  }
+
   public playGambleWin() {
     this.playTone(1200, 'sine', 0.1, 0, 0.1);
     this.playTone(1800, 'sine', 0.4, 0.1, 0.1);

@@ -1,7 +1,7 @@
 import React from 'react';
 import { SYMBOLS } from '../constants';
 import { 
-  Sword, Crown, Droplet, Flame, Eye, Coins, Box, GraduationCap
+  Sword, Crown, Droplet, Flame, Eye, Coins, Box, GraduationCap, Ghost, Hexagon
 } from 'lucide-react';
 
 interface ReelProps {
@@ -19,7 +19,9 @@ const IconMap: Record<string, React.FC<any>> = {
   'eye': Eye,
   'coins': Coins,
   'box': Box,
-  'hat': GraduationCap
+  'hat': GraduationCap,
+  'ghost': Ghost,     // Wild
+  'hexagon': Hexagon  // Scatter
 };
 
 const Reel: React.FC<ReelProps> = ({ symbols, spinning, delay, winHighlightRows }) => {
@@ -47,6 +49,25 @@ const Reel: React.FC<ReelProps> = ({ symbols, spinning, delay, winHighlightRows 
             const isWinner = winHighlightRows.includes(rowIndex);
             const IconComponent = IconMap[sym.icon] || Box;
 
+            // Special Styling for Wild and Scatter
+            let specialBorder = 'border-white/5';
+            let specialShadow = '';
+            
+            if (isWinner) {
+                if (sym.isWild) {
+                    specialBorder = 'border-purple-500';
+                    specialShadow = 'shadow-[inset_0_0_20px_#9333ea]';
+                } else if (sym.isScatter) {
+                    specialBorder = 'border-cyan-400';
+                    specialShadow = 'shadow-[inset_0_0_20px_#22d3ee]';
+                } else {
+                    specialBorder = 'border-[#C8AA6E]';
+                    specialShadow = 'shadow-[inset_0_0_20px_#C8AA6E]';
+                }
+            } else if (sym.isWild) {
+                 specialBorder = 'border-purple-500/30';
+            }
+
             return (
               <div
                 key={rowIndex}
@@ -64,9 +85,9 @@ const Reel: React.FC<ReelProps> = ({ symbols, spinning, delay, winHighlightRows 
                 <div className={`
                     relative flex items-center justify-center
                     w-full h-full
-                    ${isWinner 
-                        ? 'border-2 border-[#C8AA6E] shadow-[inset_0_0_20px_#C8AA6E]' 
-                        : 'border border-white/5'}
+                    ${isWinner ? 'border-2' : 'border'}
+                    ${specialBorder}
+                    ${specialShadow}
                 `}>
                     
                     {/* Render Image if available, else fallback to Icon */}
@@ -92,6 +113,13 @@ const Reel: React.FC<ReelProps> = ({ symbols, spinning, delay, winHighlightRows 
                                 `}
                                 strokeWidth={1.5}
                             />
+                        </div>
+                    )}
+                    
+                    {/* Label for Wild/Scatter if no image */}
+                    {!sym.image && (sym.isWild || sym.isScatter) && (
+                        <div className="absolute bottom-1 text-[8px] font-bold uppercase tracking-widest bg-black/60 px-2 rounded">
+                            {sym.isWild ? 'WILD' : 'SCATTER'}
                         </div>
                     )}
 

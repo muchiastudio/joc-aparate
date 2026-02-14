@@ -1,109 +1,160 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import Reel from './Reel';
 import Controls from './Controls';
-import GambleGame from './GambleGame';
 import Paytable from './Paytable';
-import { SYMBOLS, PAYLINES, BET_LEVELS, STARTING_BALANCE, COLS, ROWS } from '../constants';
+import AutoplaySettings, { AutoplayConfig } from './AutoplaySettings';
+import JackpotDisplay from './JackpotDisplay';
+import MegaWinAnimation from './MegaWinAnimation';
+import { SYMBOLS, PAYLINES, BET_LEVELS, STARTING_BALANCE, COLS, ROWS, JACKPOT_SEED, JACKPOT_CONTRIBUTION, JACKPOT_CHANCE, SCATTER_CHANCE_PERCENT, FREE_SPINS_COUNT, MAX_WIN_MULTIPLIER } from '../constants';
 import { WinData } from '../types';
 import { SoundManager } from '../utils/audio';
 
 // Helper to get random symbol based on weights, optionally excluding an ID
-const getRandomSymbolId = (excludeId?: number) => {
+const getRandomSymbolId = (excludeId?: number, isHighVolatility: boolean = false) => {
   const availableSymbols = excludeId !== undefined 
     ? SYMBOLS.filter(s => s.id !== excludeId) 
     : SYMBOLS;
     
-  const totalWeight = availableSymbols.reduce((acc, sym) => acc + sym.weight, 0);
+  // Calculate total weight (adjust for volatility)
+  const totalWeight = availableSymbols.reduce((acc, sym) => {
+      let weight = sym.weight;
+      // In high volatility (Free Spins), Triple chances for Wilds and High Tier symbols
+      if (isHighVolatility) {
+          if (sym.isWild) weight *= 3;
+          if (sym.value[4] >= 400) weight *= 2; // High value symbols
+      }
+      return acc + weight;
+  }, 0);
+
   let random = Math.random() * totalWeight;
   
   for (const sym of availableSymbols) {
-    if (random < sym.weight) {
+    let weight = sym.weight;
+    if (isHighVolatility) {
+        if (sym.isWild) weight *= 3;
+        if (sym.value[4] >= 400) weight *= 2;
+    }
+
+    if (random < weight) {
       return sym.id;
     }
-    random -= sym.weight;
+    random -= weight;
   }
   return availableSymbols[0].id;
 };
 
-// Generate Grid with Logic: Max 1 Scatter per column
-const generateGrid = () => {
-  const scatterId = SYMBOLS.find(s => s.isScatter)?.id;
+// Generate Grid
+// 2% chance to force at least 3 scatters (Special Trigger)
+const generateGrid = (isHighVolatility: boolean = false) => {
+  const scatterSymbol = SYMBOLS.find(s => s.isScatter);
+  const scatterId = scatterSymbol?.id;
   
-  return Array(COLS).fill(null).map(() => {
-    let hasScatterInColumn = false;
-    
-    return Array(ROWS).fill(null).map(() => {
-      // If we already have a scatter in this column, exclude it from future generations in this column
-      const id = getRandomSymbolId(hasScatterInColumn ? scatterId : undefined);
-      
-      if (id === scatterId) {
-        hasScatterInColumn = true;
+  // Check for Forced Trigger (Only in base game, not retriggering freely in this logic for simplicity)
+  // But allow retrigger if random luck hits
+  const forceScatter = !isHighVolatility && Math.random() < SCATTER_CHANCE_PERCENT; 
+
+  const grid = Array(COLS).fill(null).map(() => Array(ROWS).fill(null));
+  
+  // If forced, place 3 scatters randomly first
+  if (forceScatter && scatterId !== undefined) {
+      const colsIndices = [0,1,2,3,4].sort(() => 0.5 - Math.random()).slice(0, 3);
+      colsIndices.forEach(colIdx => {
+          const rowIdx = Math.floor(Math.random() * ROWS);
+          grid[colIdx][rowIdx] = scatterId;
+      });
+  }
+
+  // Fill the rest
+  for (let c = 0; c < COLS; c++) {
+      let hasScatterInColumn = grid[c].includes(scatterId);
+
+      for (let r = 0; r < ROWS; r++) {
+          if (grid[c][r] !== null) continue; // Skip pre-placed symbols
+
+          const id = getRandomSymbolId(hasScatterInColumn ? scatterId : undefined, isHighVolatility);
+          if (id === scatterId) hasScatterInColumn = true;
+          grid[c][r] = id;
       }
-      return id;
-    });
-  });
+  }
+
+  return grid;
 };
 
 const checkWins = (currentGrid: number[][], currentBet: number) => {
   let totalWin = 0;
   const newWins: WinData[] = [];
 
-  // 1. Check Paylines
+  // 1. Check Paylines with Wild Substitution
   PAYLINES.forEach((line) => {
-    const symbolId = currentGrid[0][line.positions[0]];
-    let matchCount = 1;
+    // Get symbols on this line
+    const lineSymbols = line.positions.map((row, col) => {
+        const symId = currentGrid[col][row];
+        return SYMBOLS.find(s => s.id === symId)!;
+    });
+
+    // Determine the "Match Symbol" (the first non-wild symbol)
+    // If all are wilds, match symbol is Wild (highest pay)
+    const firstNonWild = lineSymbols.find(s => !s.isWild && !s.isScatter);
+    const matchSymbol = firstNonWild || SYMBOLS.find(s => s.isWild)!;
     
-    for (let col = 1; col < COLS; col++) {
-      const row = line.positions[col];
-      if (currentGrid[col][row] === symbolId) {
-        matchCount++;
-      } else {
-        break;
-      }
+    // We cannot form lines with Scatters usually, so if matchSymbol is Scatter, skip (handled separately)
+    // But here we filtered out scatter in firstNonWild, so if it's undefined, it means line is all Wilds or Wilds+Scatters?
+    // Scatters don't usually act as blockers for Wilds in line logic unless specific. 
+    // Simplified: Wilds substitute for standard symbols.
+
+    if (matchSymbol.isScatter) return; // Should not happen based on logic above unless all scatters
+
+    let matchCount = 0;
+    // Count matches from left to right
+    for (let i = 0; i < COLS; i++) {
+        const sym = lineSymbols[i];
+        if (sym.id === matchSymbol.id || sym.isWild) {
+            matchCount++;
+        } else {
+            break;
+        }
     }
 
-    const symbolDef = SYMBOLS.find(s => s.id === symbolId);
-    if (symbolDef && !symbolDef.isScatter) {
-      const multiplier = symbolDef.value[matchCount - 1] || 0;
-      if (multiplier > 0) {
-          const winAmount = currentBet * multiplier;
-          totalWin += winAmount;
-          newWins.push({
-              amount: winAmount,
-              lineIndex: line.id,
-              symbolId: symbolId,
-              matchCount
-          });
-      }
+    if (matchCount >= 2) { // Some symbols pay on 2
+        const multiplier = matchSymbol.value[matchCount - 1] || 0;
+        if (multiplier > 0) {
+            const winAmount = currentBet * multiplier;
+            totalWin += winAmount;
+            newWins.push({
+                amount: winAmount,
+                lineIndex: line.id,
+                symbolId: matchSymbol.id,
+                matchCount
+            });
+        }
     }
   });
 
   // 2. Check Scatters (Anywhere in grid)
   let scatterCount = 0;
-  const scatterSymbolId = SYMBOLS.find(s => s.isScatter)?.id;
+  const scatterSymbol = SYMBOLS.find(s => s.isScatter);
   
-  if (scatterSymbolId !== undefined) {
+  if (scatterSymbol) {
       currentGrid.flat().forEach(id => {
-          if (id === scatterSymbolId) scatterCount++;
+          if (id === scatterSymbol.id) scatterCount++;
       });
       
-      const scatterDef = SYMBOLS.find(s => s.isScatter);
-      if (scatterDef && scatterCount >= 3) {
-          const scatterMult = scatterDef.value[Math.min(scatterCount, 5) - 1] || 0;
-          if (scatterMult > 0) {
-              const winAmount = currentBet * scatterMult;
+      if (scatterCount >= 3) {
+          const scatterMult = scatterSymbol.value[Math.min(scatterCount, 5) - 1] || 0;
+          const winAmount = currentBet * scatterMult;
+          if (winAmount > 0) {
               totalWin += winAmount;
               newWins.push({
                   amount: winAmount,
                   lineIndex: -1, 
-                  symbolId: scatterDef.id,
+                  symbolId: scatterSymbol.id,
                   matchCount: scatterCount
               });
           }
       }
   }
 
-  return { totalWin, newWins };
+  return { totalWin, newWins, scatterCount };
 };
 
 const SlotMachine: React.FC = () => {
@@ -111,144 +162,240 @@ const SlotMachine: React.FC = () => {
   const [bet, setBet] = useState(BET_LEVELS[0]); 
   const [grid, setGrid] = useState<number[][]>(generateGrid());
   
-  // Controls global game state
-  const [isGameActive, setIsGameActive] = useState(false);
-  // Controls individual reel animation
-  const [reelSpinning, setReelSpinning] = useState<boolean[]>(Array(COLS).fill(false));
+  // Jackpot State
+  const [jackpot, setJackpot] = useState(() => {
+    if (typeof localStorage !== 'undefined') {
+        const saved = localStorage.getItem('slot_jackpot');
+        if (saved) return parseFloat(saved);
+    }
+    return JACKPOT_SEED;
+  });
 
+  // Game State
+  const [isGameActive, setIsGameActive] = useState(false);
+  const [reelSpinning, setReelSpinning] = useState<boolean[]>(Array(COLS).fill(false));
   const [lastWin, setLastWin] = useState(0);
   const [winningLines, setWinningLines] = useState<WinData[]>([]);
-  
-  // Cooldown State for UI lock after win
+  const [jackpotWinAmount, setJackpotWinAmount] = useState(0); 
   const [winCooldown, setWinCooldown] = useState(false);
+  const [showMegaWin, setShowMegaWin] = useState(false); // State for "NEBUNULE" animation
 
-  // Gamble State
-  const [isGambling, setIsGambling] = useState(false);
-  const [gambleAmount, setGambleAmount] = useState(0);
+  // Free Spins State
+  const [freeSpinsLeft, setFreeSpinsLeft] = useState(0);
+  const [isBonusTriggered, setIsBonusTriggered] = useState(false);
 
-  // Paytable State
+  // Modals & Auto
   const [isPaytableOpen, setIsPaytableOpen] = useState(false);
+  const [isAutoplaySettingsOpen, setIsAutoplaySettingsOpen] = useState(false);
+  const [isAutoplayActive, setIsAutoplayActive] = useState(false);
+  const [autoplayCount, setAutoplayCount] = useState(0);
+  const [autoplayConfig, setAutoplayConfig] = useState<AutoplayConfig | null>(null);
+  const [startingAutoBalance, setStartingAutoBalance] = useState(0);
 
-  // Refs for Quick Stop Logic
+  // Refs
   const timerRefs = useRef<ReturnType<typeof setTimeout>[]>([]);
   const nextGridRef = useRef<number[][]>([]);
+  const autoSpinTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Clear cooldown effect
+  useEffect(() => {
+      localStorage.setItem('slot_jackpot', jackpot.toString());
+  }, [jackpot]);
+
   useEffect(() => {
       let timeout: ReturnType<typeof setTimeout>;
       if (winCooldown) {
+          // Calculate delay based on what animation is showing
+          let delay = 1500;
+          if (isBonusTriggered) delay = 4000;
+          if (showMegaWin) delay = 5000; // Give time for the TSSSS animation
+
           timeout = setTimeout(() => {
               setWinCooldown(false);
-          }, 1000); // 1 second cooldown
+              setJackpotWinAmount(0);
+              setIsBonusTriggered(false);
+              setShowMegaWin(false);
+              
+              // If we have free spins left, auto spin after cooldown
+              if (freeSpinsLeft > 0 && !isGameActive) {
+                   handleSpin();
+              }
+          }, delay); 
       }
       return () => clearTimeout(timeout);
-  }, [winCooldown]);
+  }, [winCooldown, freeSpinsLeft, isGameActive, isBonusTriggered, showMegaWin]);
 
-  // Full Screen Logic
+  // AUTOPLAY LOGIC
+  useEffect(() => {
+    if (isAutoplayActive && !isGameActive && !winCooldown && autoplayCount > 0 && freeSpinsLeft === 0) {
+        autoSpinTimerRef.current = setTimeout(() => {
+            handleSpin();
+        }, 800);
+    } else if (isAutoplayActive && autoplayCount <= 0 && !isGameActive && !winCooldown && freeSpinsLeft === 0) {
+        setIsAutoplayActive(false);
+    }
+    return () => { if (autoSpinTimerRef.current) clearTimeout(autoSpinTimerRef.current); }
+  }, [isAutoplayActive, isGameActive, winCooldown, autoplayCount, freeSpinsLeft]);
+
+
   const handleFullScreen = () => {
     if (!document.fullscreenElement) {
-        document.documentElement.requestFullscreen().catch((e) => {
-            console.error(`Error attempting to enable fullscreen mode: ${e.message} (${e.name})`);
-        });
+        document.documentElement.requestFullscreen().catch((e) => {});
     } else {
-        if (document.exitFullscreen) {
-            document.exitFullscreen();
-        }
+        if (document.exitFullscreen) document.exitFullscreen();
     }
   };
 
-  // Function to process wins
-  const processWins = (currentGrid: number[][]) => {
-      const { totalWin, newWins } = checkWins(currentGrid, bet);
-        
-      if (totalWin > 0) {
-          setBalance(prev => prev + totalWin);
-          setLastWin(totalWin);
-          setWinningLines(newWins);
-          
-          // Lock UI for 1 second to let user see the win
-          setWinCooldown(true);
-
-          if (totalWin > bet * 10) {
-            SoundManager.playWin('big');
-          } else {
-            SoundManager.playWin('small');
-          }
-      }
+  const stopAutoplay = () => {
+      setIsAutoplayActive(false);
+      setAutoplayCount(0);
   };
 
-  // Define Gamble Collect function early so handleSpin can use it
-  const handleGambleCollect = () => {
-    SoundManager.playWin('small');
-    // Ensure we use the exact amount in the pot
-    setBalance(prev => prev + gambleAmount);
-    
-    setIsGambling(false);
-    // Reset win state so user can't gamble again until next spin
-    setLastWin(0);
-    setWinningLines([]);
+  // Process Wins
+  const processWins = (currentGrid: number[][]) => {
+      const { totalWin, newWins, scatterCount } = checkWins(currentGrid, bet);
+      let finalWin = totalWin;
+      let hitJackpot = false;
+
+      // Jackpot Check
+      if (Math.random() < JACKPOT_CHANCE) {
+          hitJackpot = true;
+          const currentPot = jackpot;
+          finalWin += currentPot;
+          setJackpotWinAmount(currentPot);
+          SoundManager.playJackpotWin();
+          setJackpot(JACKPOT_SEED);
+      }
+
+      // Bonus Trigger Check
+      let bonusTriggeredNow = false;
+      if (scatterCount >= 3) {
+          bonusTriggeredNow = true;
+          setIsBonusTriggered(true);
+          SoundManager.playWin('big'); // Reuse big win sound for bonus
+          
+          // Add Free Spins
+          setFreeSpinsLeft(prev => prev + FREE_SPINS_COUNT);
+      }
+        
+      if (finalWin > 0) {
+          setLastWin(finalWin);
+          setWinningLines(newWins);
+          setWinCooldown(true);
+
+          if (!hitJackpot && !bonusTriggeredNow) {
+              // Logic for 100x Win Animation (BASE GAME ONLY)
+              // We check if finalWin >= bet * 100 AND we are NOT currently in free spins mode (triggered before this spin)
+              // Note: freeSpinsLeft is decremented at start of spin, so 0 means base game unless we just triggered it.
+              // To be safe, "Base Game" means we weren't using a free spin. 
+              // We can check this by seeing if we deducted balance in handleSpin, or simpler: 
+              // The state `freeSpinsLeft` would be > 0 if we were IN a free spin round.
+              // However, since we might have just added free spins (bonusTriggeredNow), we should check if we *started* with free spins.
+              // For simplicity, sticking to the user prompt "IN JOCUL DE BAZA":
+              const isBaseGameWin = freeSpinsLeft === 0 && !bonusTriggeredNow; // Not in FS, and not just triggered bonus (optional)
+              
+              if (isBaseGameWin && finalWin >= bet * 100) {
+                  setShowMegaWin(true);
+                  SoundManager.playWin('big');
+              } else {
+                  if (finalWin > bet * 10) SoundManager.playWin('big');
+                  else SoundManager.playWin('small');
+              }
+          }
+
+          // Add to balance immediately (No Gamble anymore)
+          setBalance(prev => prev + finalWin);
+
+          // MAX WIN CAP (256x) - Auto Stop
+          if (finalWin >= bet * MAX_WIN_MULTIPLIER) {
+              stopAutoplay();
+              // Force clear any remaining free spins if max win hit? Usually games continue, but "collect automat" implies stop.
+              setFreeSpinsLeft(0); 
+              alert(`MAX WIN REACHED! (${finalWin})`);
+              return;
+          }
+
+          // Autoplay Stops
+          if (isAutoplayActive && autoplayConfig) {
+             if (hitJackpot || (bonusTriggeredNow && autoplayConfig.stopOnBonus)) {
+                 stopAutoplay();
+                 return;
+             }
+             if (autoplayConfig.stopOnWin) { stopAutoplay(); return; }
+             if (autoplayConfig.singleWinLimit && finalWin >= autoplayConfig.singleWinLimit) { stopAutoplay(); return; }
+          }
+
+      } else {
+          // No win logic
+          if (bonusTriggeredNow) {
+              // Triggered bonus but no line win (possible if scatter pays 0, but here scatter pays)
+              setWinCooldown(true);
+          }
+          
+          if (isAutoplayActive && autoplayConfig && !bonusTriggeredNow && freeSpinsLeft === 0) {
+             if (autoplayConfig.lossLimit && (startingAutoBalance - balance) >= autoplayConfig.lossLimit) {
+                 stopAutoplay();
+             }
+          }
+      }
+
+      // Decrement Autoplay count (only if not a free spin)
+      if (isAutoplayActive && freeSpinsLeft === 0) {
+          setAutoplayCount(prev => prev - 1);
+      }
   };
 
   const handleSpin = useCallback(() => {
-    // If gambling, the main button acts as COLLECT
-    if (isGambling) {
-        handleGambleCollect();
-        return;
-    }
-
-    // Block action if in cooldown
     if (winCooldown) return;
 
-    // === QUICK STOP LOGIC ===
     if (isGameActive) {
-        // Clear all pending reel stops
+        // Quick Stop
         timerRefs.current.forEach(clearTimeout);
         timerRefs.current = [];
-
-        // Force stop all reels immediately
         setReelSpinning(Array(COLS).fill(false));
-        SoundManager.playReelStop(); // Play sound once for impact
-
-        // Calculate result immediately using the grid we already generated
+        SoundManager.playReelStop();
         processWins(nextGridRef.current);
-
         setIsGameActive(false);
         return;
     }
 
-    // === START SPIN LOGIC ===
-    if (balance < bet) return;
+    // Logic for deducting balance
+    // If Free Spin, don't deduct.
+    const isFreeSpinRound = freeSpinsLeft > 0;
+    
+    if (isFreeSpinRound) {
+        setFreeSpinsLeft(prev => prev - 1);
+    } else {
+        if (balance < bet) {
+            if (isAutoplayActive) stopAutoplay();
+            return;
+        }
+        setBalance(prev => prev - bet);
+        setJackpot(prev => prev + (bet * JACKPOT_CONTRIBUTION));
+    }
 
     SoundManager.playClick();
     SoundManager.playSpinStart();
 
-    setIsGambling(false);
-    setGambleAmount(0);
-    setIsPaytableOpen(false); // Close paytable if open
-
-    setBalance(prev => prev - bet);
+    setIsPaytableOpen(false);
+    setIsAutoplaySettingsOpen(false);
+    setJackpotWinAmount(0);
     setLastWin(0);
     setWinningLines([]);
+    setIsBonusTriggered(false);
+    setShowMegaWin(false);
     
-    // Start game state
     setIsGameActive(true);
-    // Start all reels spinning
     setReelSpinning(Array(COLS).fill(true));
 
-    // Pre-calculate next grid immediately
-    const nextGrid = generateGrid();
-    nextGridRef.current = nextGrid; // Store for quick stop access
-    
-    // Update the grid state in background.
+    // High Volatility during Free Spins
+    const nextGrid = generateGrid(isFreeSpinRound);
+    nextGridRef.current = nextGrid;
     setGrid(nextGrid);
 
-    // Staggered stop logic
     const INITIAL_DELAY = 600; 
     const DELAY_PER_REEL = 300; 
-
     timerRefs.current = [];
 
-    // Schedule each reel stop
     nextGrid.forEach((_, colIndex) => {
         const timeoutId = setTimeout(() => {
             setReelSpinning(prev => {
@@ -258,113 +405,71 @@ const SlotMachine: React.FC = () => {
             });
             SoundManager.playReelStop();
         }, INITIAL_DELAY + (colIndex * DELAY_PER_REEL));
-        
         timerRefs.current.push(timeoutId);
     });
 
-    // Schedule final result calculation
     const totalDuration = INITIAL_DELAY + ((COLS - 1) * DELAY_PER_REEL) + 200;
     const finalTimeoutId = setTimeout(() => {
         processWins(nextGrid);
         setIsGameActive(false);
-        timerRefs.current = []; // Clear refs when done normally
+        timerRefs.current = [];
     }, totalDuration);
-
     timerRefs.current.push(finalTimeoutId);
 
-  }, [balance, bet, isGameActive, winCooldown, isGambling, gambleAmount]); // Added isGambling/gambleAmount dependencies
+  }, [balance, bet, isGameActive, winCooldown, isAutoplayActive, autoplayConfig, startingAutoBalance, freeSpinsLeft]); 
 
-  const handleStartGamble = () => {
-    // Block if cooling down
-    if (winCooldown) return;
-
-    SoundManager.playClick();
-    if (lastWin > 0) {
-        // Deduct from balance to table
-        setBalance(prev => prev - lastWin);
-        setGambleAmount(lastWin);
-        setIsGambling(true);
-    }
-  };
-
-  const handleGambleWin = () => {
-    SoundManager.playGambleWin();
-    setGambleAmount(prev => {
-        const newAmt = prev * 2;
-        setLastWin(newAmt);
-        return newAmt;
-    });
-  };
-
-  const handleGambleLose = () => {
-    SoundManager.playGambleLose();
-    setGambleAmount(0);
-    setLastWin(0);
-    setIsGambling(false);
-    setWinningLines([]);
+  const handleStartAutoplay = (config: AutoplayConfig) => {
+      setAutoplayConfig(config);
+      setAutoplayCount(config.spins);
+      setStartingAutoBalance(balance);
+      setIsAutoplayActive(true);
+      setTimeout(() => { handleSpin(); }, 100);
   };
 
   const getWinningCells = (colIndex: number) => {
     if (isGameActive) return [];
-    
     const highlightedRows: number[] = [];
-
     winningLines.forEach(win => {
         if (win.lineIndex === -1) {
             const scatterId = SYMBOLS.find(s => s.isScatter)?.id;
-            grid[colIndex].forEach((sym, rIdx) => {
-                if (sym === scatterId) highlightedRows.push(rIdx);
-            });
+            grid[colIndex].forEach((sym, rIdx) => { if (sym === scatterId) highlightedRows.push(rIdx); });
         } else {
             const line = PAYLINES.find(p => p.id === win.lineIndex);
-            if (line && colIndex < win.matchCount) {
-                highlightedRows.push(line.positions[colIndex]);
-            }
+            if (line && colIndex < win.matchCount) highlightedRows.push(line.positions[colIndex]);
         }
     });
-
     return highlightedRows;
   };
 
   return (
-    <div className="flex flex-col items-center justify-center h-full w-full relative overflow-hidden bg-[#010A13]">
+    <div className={`flex flex-col h-screen w-full relative overflow-hidden ${freeSpinsLeft > 0 ? 'bg-[#1a0505]' : 'bg-[#010A13]'} transition-colors duration-1000`}>
       
       {/* Background Graphic */}
       <div className="absolute inset-0 bg-cover bg-center z-0 opacity-40" style={{ backgroundImage: "url('https://images.unsplash.com/photo-1542751371-adc38448a05e?q=80&w=2670&auto=format&fit=crop')" }}></div>
-      <div className="absolute inset-0 bg-gradient-to-t from-[#010A13] via-[#010A13]/80 to-transparent z-0"></div>
+      <div className={`absolute inset-0 bg-gradient-to-t ${freeSpinsLeft > 0 ? 'from-[#330000] via-[#1a0505]/80' : 'from-[#010A13] via-[#010A13]/80'} to-transparent z-0 transition-colors duration-1000`}></div>
 
       {/* Main Container */}
-      <div className="relative z-10 w-full h-full max-w-[1300px] flex flex-col justify-center">
+      <div className="relative z-10 w-full h-full max-w-[1400px] mx-auto flex flex-col">
         
-        {/* Header - Hidden on Mobile Landscape to save space */}
-        <div className="flex-shrink-0 flex flex-col items-center justify-center py-2 md:py-4 landscape:hidden md:landscape:flex">
-            <h1 className="font-lol text-2xl md:text-5xl lg:text-7xl font-bold text-[#C8AA6E] tracking-widest drop-shadow-[0_2px_10px_rgba(0,0,0,0.8)] border-b-2 border-[#C8AA6E] pb-2 text-center">
-                LEAGUE <span className="text-[#F0E6D2] text-xl md:text-3xl lg:text-5xl inline mx-2">OF</span> SLOTS
+        {/* Header */}
+        <div className="flex-shrink-0 pt-2 pb-0 md:py-2 text-center z-20">
+             <JackpotDisplay amount={jackpot} />
+             {/* Title */}
+            <h1 className="hidden md:inline-block font-lol text-2xl lg:text-5xl font-bold text-[#C8AA6E] tracking-widest drop-shadow-[0_2px_10px_rgba(0,0,0,0.8)] border-b-2 border-[#C8AA6E] px-8 pb-1">
+                {freeSpinsLeft > 0 ? <span className="text-[#D13639] animate-pulse">VOID RIFT ACTIVE</span> : <span>LEAGUE <span className="text-[#F0E6D2] inline mx-2">OF</span> SLOTS</span>}
             </h1>
         </div>
 
-        {/* Game Area Wrapper - Centers the slot machine */}
-        <div className="flex-1 flex items-center justify-center w-full px-2 md:px-8 py-2 overflow-hidden">
-            
-            {/* 
-                Game Area Aspect Ratio Logic:
-                Mobile Portrait: 16/10 (Slightly taller than square)
-                Mobile Landscape: 16/9 (Widescreen) 
-            */}
-            <div className="relative w-full 
-                aspect-[16/10] md:aspect-[16/9] lg:aspect-[2/1] 
-                max-h-[70vh] landscape:max-h-[75vh]
-                border-[3px] border-[#C8AA6E] bg-[#010A13]/90 shadow-[0_0_40px_rgba(10,200,185,0.15)] overflow-hidden shrink-0">
+        {/* Game Area Wrapper */}
+        <div className="flex-1 flex items-center justify-center w-full px-2 py-1 md:p-4 overflow-hidden relative min-h-0">
+            <div className={`relative 
+                w-full h-auto max-w-full max-h-full aspect-[5/3]
+                border-[3px] ${freeSpinsLeft > 0 ? 'border-[#D13639] shadow-[0_0_50px_#D13639]' : 'border-[#C8AA6E] shadow-[0_0_40px_rgba(10,200,185,0.15)]'} 
+                bg-[#010A13]/90 shrink-0 transition-all duration-500
+            `}>
                 
-                {/* Decorative Corner Ornaments */}
-                <div className="absolute top-0 left-0 w-8 h-8 md:w-16 md:h-16 border-t-4 border-l-4 border-[#C8AA6E] z-20"></div>
-                <div className="absolute top-0 right-0 w-8 h-8 md:w-16 md:h-16 border-t-4 border-r-4 border-[#C8AA6E] z-20"></div>
-                <div className="absolute bottom-0 left-0 w-8 h-8 md:w-16 md:h-16 border-b-4 border-l-4 border-[#C8AA6E] z-20"></div>
-                <div className="absolute bottom-0 right-0 w-8 h-8 md:w-16 md:h-16 border-b-4 border-r-4 border-[#C8AA6E] z-20"></div>
-
                 {/* Reel Container */}
                 <div className="flex h-full w-full relative">
-                    {/* Reels */}
                     {grid.map((colSymbols, colIndex) => (
                         <div key={colIndex} className="flex-1 h-full z-0 relative">
                             <Reel 
@@ -377,23 +482,15 @@ const SlotMachine: React.FC = () => {
                     ))}
 
                     {/* Paylines Overlay */}
-                    {winningLines.length > 0 && !isGameActive && !isGambling && (
+                    {winningLines.length > 0 && !isGameActive && (
                         <div className="absolute inset-0 pointer-events-none z-10">
                             <svg className="w-full h-full" preserveAspectRatio="none">
                                 {winningLines.map((win, i) => {
                                     if (win.lineIndex === -1) return null;
                                     const line = PAYLINES.find(p => p.id === win.lineIndex);
                                     if(!line) return null;
-
-                                    const getCoord = (col: number, row: number) => {
-                                        // Adjusted for tighter centers
-                                        const x = (col * 20) + 10; 
-                                        const y = (row * 33.33) + 16.66;
-                                        return `${x}% ${y}%`;
-                                    }
-
+                                    const getCoord = (col: number, row: number) => `${(col * 20) + 10}% ${(row * 33.33) + 16.66}%`;
                                     const points = line.positions.slice(0, win.matchCount).map((row, col) => getCoord(col, row)).join(',');
-
                                     return (
                                         <polyline 
                                             key={i}
@@ -412,45 +509,60 @@ const SlotMachine: React.FC = () => {
                         </div>
                     )}
 
-                    {/* Gamble Game Overlay */}
-                    {isGambling && (
-                        <GambleGame 
-                            amount={gambleAmount}
-                            onDouble={handleGambleWin}
-                            onLose={handleGambleLose}
-                            onCollect={handleGambleCollect}
-                        />
+                    {/* MEGA WIN ANIMATION (100x Base Game) */}
+                    {showMegaWin && <MegaWinAnimation />}
+
+                    {/* BONUS WIN OVERLAY */}
+                    {isBonusTriggered && (
+                        <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/90 animate-in zoom-in duration-500">
+                             <h2 className="text-4xl md:text-6xl font-lol font-black text-[#D13639] animate-bounce text-center mb-4 uppercase drop-shadow-[0_0_20px_#D13639]">
+                                SPECIALA ACTIVATĂ!
+                             </h2>
+                             <div className="text-2xl md:text-4xl font-bold text-[#F0E6D2] drop-shadow-lg">
+                                 10 ROTIRI GRATUITE
+                             </div>
+                        </div>
                     )}
-                    
-                    {/* Paytable Modal */}
-                    {isPaytableOpen && (
-                        <Paytable 
-                            onClose={() => setIsPaytableOpen(false)}
-                            currentBet={bet}
-                        />
+
+                    {/* JACKPOT WIN OVERLAY */}
+                    {jackpotWinAmount > 0 && (
+                        <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/90 animate-in zoom-in duration-500">
+                             <h2 className="text-4xl md:text-6xl font-lol font-black text-[#0AC8B9] animate-bounce text-center mb-4 uppercase drop-shadow-[0_0_20px_#0AC8B9]">
+                                JACKPOT WIN!
+                             </h2>
+                             <div className="text-5xl md:text-8xl font-black text-[#F0E6D2] drop-shadow-lg">
+                                 {jackpotWinAmount.toLocaleString('ro-RO')}
+                             </div>
+                        </div>
                     )}
+
+                    {/* Modals */}
+                    {isPaytableOpen && <Paytable onClose={() => setIsPaytableOpen(false)} currentBet={bet} />}
+                    {isAutoplaySettingsOpen && <AutoplaySettings onClose={() => setIsAutoplaySettingsOpen(false)} onStart={handleStartAutoplay} currentBalance={balance} />}
                 </div>
             </div>
         </div>
 
-        {/* Controls - LoL Client Footer */}
-        <div className="flex-shrink-0 w-full">
+        {/* Controls */}
+        <div className="flex-shrink-0 w-full z-50">
             <Controls 
                 balance={balance}
                 bet={bet}
                 setBet={setBet}
                 spin={handleSpin}
-                onGamble={handleStartGamble}
                 spinning={isGameActive}
                 lastWin={lastWin}
                 onFullScreen={handleFullScreen}
                 onOpenPaytable={() => setIsPaytableOpen(true)}
+                onOpenAutoplay={() => setIsAutoplaySettingsOpen(true)}
+                onStopAutoplay={stopAutoplay}
                 cooldown={winCooldown}
-                isGambling={isGambling}
+                isAutoplayActive={isAutoplayActive}
+                autoplayCount={autoplayCount}
+                freeSpinsLeft={freeSpinsLeft}
             />
         </div>
       </div>
-
     </div>
   );
 };

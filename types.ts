@@ -1,3 +1,4 @@
+
 export interface SlotSymbol {
   id: number;
   name: string;
@@ -6,6 +7,7 @@ export interface SlotSymbol {
   color: string;
   value: number[]; // Multipliers for 1, 2, 3, 4, 5 matches
   isScatter?: boolean;
+  isWild?: boolean; // New property for Wild symbols
   weight: number; // Probability weight (higher = more frequent)
 }
 
