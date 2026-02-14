@@ -1,72 +1,124 @@
-// Audio Utility using HTML5 Audio for custom sound files
-// Place your audio files in 'public/assets/sounds/'
 
-const SOUND_FILES = {
-  click: '/assets/sounds/click.mp3',
-  spin: '/assets/sounds/spin.mp3',
-  reelStop: '/assets/sounds/land.mp3',
-  winSmall: '/assets/sounds/win_small.mp3',
-  winBig: '/assets/sounds/win_big.mp3',
-  gambleWin: '/assets/sounds/gamble_win.mp3',
-  gambleLose: '/assets/sounds/gamble_lose.mp3'
-};
+// Audio Utility using Web Audio API (Synthesizer)
+// No external files required.
 
-class AudioController {
-  private sounds: Map<string, HTMLAudioElement> = new Map();
+class SynthAudioController {
+  private ctx: AudioContext | null = null;
   private isMuted: boolean = false;
 
   constructor() {
-    // Preload sounds
-    if (typeof window !== 'undefined') {
-        Object.entries(SOUND_FILES).forEach(([key, path]) => {
-            const audio = new Audio(path);
-            audio.volume = 0.4;
-            this.sounds.set(key, audio);
-        });
+    // Initialize on first interaction usually, but we setup context structure here
+    try {
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      this.ctx = new AudioContextClass();
+    } catch (e) {
+      console.warn("Web Audio API not supported");
+    }
+
+    // Load mute preference
+    if (typeof localStorage !== 'undefined') {
+        this.isMuted = localStorage.getItem('slot_is_muted') === 'true';
     }
   }
 
-  private play(key: string, volume: number = 0.4) {
-    if (this.isMuted) return;
-    const sound = this.sounds.get(key);
-    if (sound) {
-        // Clone node allows multiple instances of the same sound to overlap (e.g., rapid clicks)
-        const clone = sound.cloneNode() as HTMLAudioElement;
-        clone.volume = volume;
-        clone.play().catch(e => {
-            // Browsers often block auto-play until user interaction
-            // This ignores the error in the console if it happens
-        });
+  private getContext(): AudioContext | null {
+    if (!this.ctx) return null;
+    if (this.ctx.state === 'suspended') {
+      this.ctx.resume();
     }
+    return this.ctx;
+  }
+
+  // Public method to toggle mute
+  public toggleMute(): boolean {
+      this.isMuted = !this.isMuted;
+      if (typeof localStorage !== 'undefined') {
+          localStorage.setItem('slot_is_muted', String(this.isMuted));
+      }
+      
+      // If unmuting, ensure context is running
+      if (!this.isMuted) {
+          this.getContext();
+      }
+      
+      return this.isMuted;
+  }
+
+  public getMuted(): boolean {
+      return this.isMuted;
+  }
+
+  // Helper to create an oscillator sound
+  private playTone(freq: number, type: OscillatorType, duration: number, startTime: number = 0, vol: number = 0.1) {
+    const ctx = this.getContext();
+    if (!ctx || this.isMuted) return;
+
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, ctx.currentTime + startTime);
+    
+    gain.gain.setValueAtTime(vol, ctx.currentTime + startTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + startTime + duration);
+
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+
+    osc.start(ctx.currentTime + startTime);
+    osc.stop(ctx.currentTime + startTime + duration);
   }
 
   public playClick() {
-    this.play('click', 0.3);
+    this.playTone(800, 'square', 0.05, 0, 0.05);
   }
 
   public playSpinStart() {
-    this.play('spin', 0.5);
-  }
+    const ctx = this.getContext();
+    if (!ctx || this.isMuted) return;
+    
+    // A rising sound
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(200, ctx.currentTime);
+    osc.frequency.linearRampToValueAtTime(600, ctx.currentTime + 0.3);
+    
+    gain.gain.setValueAtTime(0.1, ctx.currentTime);
+    gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.3);
 
-  public playWin(amount: 'small' | 'big') {
-    if (amount === 'big') {
-        this.play('winBig', 0.6);
-    } else {
-        this.play('winSmall', 0.5);
-    }
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.3);
   }
 
   public playReelStop() {
-    this.play('reelStop', 0.4);
+    this.playTone(150, 'sawtooth', 0.15, 0, 0.15);
+  }
+
+  public playWin(amount: 'small' | 'big') {
+    if (amount === 'small') {
+        this.playTone(523.25, 'sine', 0.1, 0); // C5
+        this.playTone(659.25, 'sine', 0.1, 0.1); // E5
+        this.playTone(783.99, 'sine', 0.4, 0.2); // G5
+    } else {
+        [0, 0.1, 0.2, 0.3, 0.4, 0.6].forEach((t, i) => {
+            const freq = [523.25, 659.25, 783.99, 1046.50, 783.99, 1046.50][i];
+            this.playTone(freq, 'square', 0.2, t, 0.1);
+        });
+    }
   }
 
   public playGambleWin() {
-    this.play('gambleWin', 0.5);
+    this.playTone(1200, 'sine', 0.1, 0, 0.1);
+    this.playTone(1800, 'sine', 0.4, 0.1, 0.1);
   }
 
   public playGambleLose() {
-    this.play('gambleLose', 0.5);
+    this.playTone(150, 'sawtooth', 0.3, 0, 0.2);
+    this.playTone(100, 'sawtooth', 0.4, 0.1, 0.2);
   }
 }
 
-export const SoundManager = new AudioController();
+export const SoundManager = new SynthAudioController();

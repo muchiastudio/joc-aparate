@@ -2,6 +2,7 @@ import React, { useState, useCallback, useRef } from 'react';
 import Reel from './Reel';
 import Controls from './Controls';
 import GambleGame from './GambleGame';
+import Paytable from './Paytable';
 import { SYMBOLS, PAYLINES, BET_LEVELS, STARTING_BALANCE, COLS, ROWS } from '../constants';
 import { WinData } from '../types';
 import { SoundManager } from '../utils/audio';
@@ -122,9 +123,25 @@ const SlotMachine: React.FC = () => {
   const [isGambling, setIsGambling] = useState(false);
   const [gambleAmount, setGambleAmount] = useState(0);
 
+  // Paytable State
+  const [isPaytableOpen, setIsPaytableOpen] = useState(false);
+
   // Refs for Quick Stop Logic
   const timerRefs = useRef<ReturnType<typeof setTimeout>[]>([]);
   const nextGridRef = useRef<number[][]>([]);
+
+  // Full Screen Logic
+  const handleFullScreen = () => {
+    if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen().catch((e) => {
+            console.error(`Error attempting to enable fullscreen mode: ${e.message} (${e.name})`);
+        });
+    } else {
+        if (document.exitFullscreen) {
+            document.exitFullscreen();
+        }
+    }
+  };
 
   // Function to process wins
   const processWins = (currentGrid: number[][]) => {
@@ -169,6 +186,7 @@ const SlotMachine: React.FC = () => {
 
     setIsGambling(false);
     setGambleAmount(0);
+    setIsPaytableOpen(false); // Close paytable if open
 
     setBalance(prev => prev - bet);
     setLastWin(0);
@@ -221,6 +239,8 @@ const SlotMachine: React.FC = () => {
   const handleStartGamble = () => {
     SoundManager.playClick();
     if (lastWin > 0) {
+        // NOTE: The money is already in the balance from the win. 
+        // We deduct it to put it "on the table".
         setBalance(prev => prev - lastWin);
         setGambleAmount(lastWin);
         setIsGambling(true);
@@ -231,7 +251,7 @@ const SlotMachine: React.FC = () => {
     SoundManager.playGambleWin();
     const newAmount = gambleAmount * 2;
     setGambleAmount(newAmount);
-    setLastWin(newAmount);
+    setLastWin(newAmount); // Update last win to show the new potential
   };
 
   const handleGambleLose = () => {
@@ -244,8 +264,12 @@ const SlotMachine: React.FC = () => {
 
   const handleGambleCollect = () => {
     SoundManager.playWin('small');
+    // Add the current table amount back to balance
     setBalance(prev => prev + gambleAmount);
     setIsGambling(false);
+    // Reset win state so user can't gamble again until next spin
+    setLastWin(0);
+    setWinningLines([]);
   };
 
   const getWinningCells = (colIndex: number) => {
@@ -271,31 +295,33 @@ const SlotMachine: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen w-full relative overflow-hidden">
+    <div className="flex flex-col items-center justify-center min-h-screen w-full relative overflow-hidden bg-[#010A13]">
       
       {/* Background Graphic */}
       <div className="absolute inset-0 bg-cover bg-center z-0 opacity-40" style={{ backgroundImage: "url('https://images.unsplash.com/photo-1542751371-adc38448a05e?q=80&w=2670&auto=format&fit=crop')" }}></div>
       <div className="absolute inset-0 bg-gradient-to-t from-[#010A13] via-[#010A13]/80 to-transparent z-0"></div>
 
       {/* Main Container */}
-      <div className="relative z-10 w-full max-w-[1300px] px-2 md:px-8 flex flex-col gap-6 md:gap-8">
+      <div className="relative z-10 w-full max-w-[1300px] px-2 md:px-8 flex flex-col gap-4 md:gap-8 h-full justify-center">
         
         {/* Header - LoL Logo Style */}
-        <div className="flex flex-col items-center justify-center mb-2 md:mb-4">
-            <h1 className="font-lol text-5xl md:text-7xl font-bold text-[#C8AA6E] tracking-widest drop-shadow-[0_2px_10px_rgba(0,0,0,0.8)] border-b-2 border-[#C8AA6E] pb-2 text-center">
-                LEAGUE <span className="text-[#F0E6D2] text-3xl md:text-5xl block md:inline mx-2">OF</span> SLOTS
+        <div className="flex flex-col items-center justify-center mb-1 md:mb-4 shrink-0">
+            <h1 className="font-lol text-3xl md:text-7xl font-bold text-[#C8AA6E] tracking-widest drop-shadow-[0_2px_10px_rgba(0,0,0,0.8)] border-b-2 border-[#C8AA6E] pb-2 text-center">
+                LEAGUE <span className="text-[#F0E6D2] text-xl md:text-5xl inline mx-2">OF</span> SLOTS
             </h1>
-            <div className="text-[#0AC8B9] font-lol tracking-[0.5em] text-xs md:text-sm uppercase mt-2">Hextech Crafting Edition</div>
         </div>
 
-        {/* Game Area - Hextech Frame */}
-        <div className="relative w-full mx-auto aspect-[16/10] md:aspect-[16/9] lg:aspect-[2/1] max-w-[1100px] border-[3px] border-[#C8AA6E] bg-[#010A13]/90 shadow-[0_0_40px_rgba(10,200,185,0.15)] overflow-hidden">
+        {/* Game Area - Responsive Aspect Ratio 
+            Mobile: aspect-[3/4] to prevent squashing
+            Desktop: aspect-[2/1] for cinematic feel
+        */}
+        <div className="relative w-full mx-auto aspect-[3/4] md:aspect-[16/9] lg:aspect-[2/1] max-w-[1100px] max-h-[70vh] border-[3px] border-[#C8AA6E] bg-[#010A13]/90 shadow-[0_0_40px_rgba(10,200,185,0.15)] overflow-hidden shrink-0">
             
             {/* Decorative Corner Ornaments */}
-            <div className="absolute top-0 left-0 w-12 h-12 md:w-16 md:h-16 border-t-4 border-l-4 border-[#C8AA6E] z-20"></div>
-            <div className="absolute top-0 right-0 w-12 h-12 md:w-16 md:h-16 border-t-4 border-r-4 border-[#C8AA6E] z-20"></div>
-            <div className="absolute bottom-0 left-0 w-12 h-12 md:w-16 md:h-16 border-b-4 border-l-4 border-[#C8AA6E] z-20"></div>
-            <div className="absolute bottom-0 right-0 w-12 h-12 md:w-16 md:h-16 border-b-4 border-r-4 border-[#C8AA6E] z-20"></div>
+            <div className="absolute top-0 left-0 w-8 h-8 md:w-16 md:h-16 border-t-4 border-l-4 border-[#C8AA6E] z-20"></div>
+            <div className="absolute top-0 right-0 w-8 h-8 md:w-16 md:h-16 border-t-4 border-r-4 border-[#C8AA6E] z-20"></div>
+            <div className="absolute bottom-0 left-0 w-8 h-8 md:w-16 md:h-16 border-b-4 border-l-4 border-[#C8AA6E] z-20"></div>
+            <div className="absolute bottom-0 right-0 w-8 h-8 md:w-16 md:h-16 border-b-4 border-r-4 border-[#C8AA6E] z-20"></div>
 
             {/* Reel Container */}
             <div className="flex h-full w-full relative">
@@ -356,6 +382,14 @@ const SlotMachine: React.FC = () => {
                         onCollect={handleGambleCollect}
                     />
                 )}
+                
+                {/* Paytable Modal */}
+                {isPaytableOpen && (
+                    <Paytable 
+                        onClose={() => setIsPaytableOpen(false)}
+                        currentBet={bet}
+                    />
+                )}
             </div>
         </div>
 
@@ -368,6 +402,8 @@ const SlotMachine: React.FC = () => {
             onGamble={handleStartGamble}
             spinning={isGameActive}
             lastWin={lastWin}
+            onFullScreen={handleFullScreen}
+            onOpenPaytable={() => setIsPaytableOpen(true)}
         />
       </div>
 

@@ -7,72 +7,72 @@ import { SlotSymbol, Payline } from './types';
 export const SYMBOLS: SlotSymbol[] = [
   { 
     id: 0, 
-    name: 'GHERGHE', 
+    name: 'BARON NASHOR', 
     icon: 'crown',
-    image: '/assets/symbols/7.png', // Pune imaginea ta aici
+    image: '/assets/symbols/baron.png', // Pune imaginea ta aici
     color: 'text-purple-400', 
     value: [0, 0, 50, 500, 2000], 
     weight: 40 
   },
   { 
     id: 1, 
-    name: 'POPI', 
+    name: 'INFINITY EDGE', 
     icon: 'sword', 
-    image: '/assets/symbols/1.png',
+    image: '/assets/symbols/sword.png',
     color: 'text-yellow-400', 
     value: [0, 0, 20, 100, 400], 
     weight: 80 
   },
   { 
     id: 2, 
-    name: 'ROBI', 
+    name: 'RABADON', 
     icon: 'hat', 
-    image: '/assets/symbols/4.png',
+    image: '/assets/symbols/rabadon.png',
     color: 'text-red-500', 
     value: [0, 0, 20, 100, 400], 
     weight: 80 
   },
   { 
     id: 3, 
-    name: 'ILIE', 
+    name: 'BLUE BUFF', 
     icon: 'droplet', 
-    image: '/assets/symbols/3.png',
+    image: '/assets/symbols/blue.png',
     color: 'text-blue-500', 
     value: [0, 0, 10, 30, 100], 
     weight: 120 
   },
   { 
     id: 4, 
-    name: 'CRISTI', 
+    name: 'RED BUFF', 
     icon: 'flame', 
-    image: '/assets/symbols/6.png',
+    image: '/assets/symbols/red.png',
     color: 'text-orange-500', 
     value: [0, 0, 10, 30, 100], 
     weight: 120 
   },
   { 
     id: 5, 
-    name: 'STELI', 
+    name: 'WARD', 
     icon: 'eye', 
-    image: '/assets/symbols/8.png',
+    image: '/assets/symbols/ward.png',
     color: 'text-green-400', 
     value: [0, 0, 5, 20, 50], 
     weight: 150 
   },
   { 
     id: 6, 
-    name: 'LUCI', 
+    name: 'GOLD', 
     icon: 'coins', 
-    image: '/assets/symbols/5.png',
+    image: '/assets/symbols/gold.png',
     color: 'text-yellow-200', 
     value: [0, 0, 5, 20, 50], 
     weight: 150 
   },
   { 
     id: 7, 
-    name: 'CIPI', 
+    name: 'HEXTECH CHEST', 
     icon: 'box', 
-    image: '/assets/symbols/2.png',
+    image: '/assets/symbols/scatter.png',
     color: 'text-cyan-400', 
     value: [0, 0, 5, 20, 100], 
     isScatter: true,
