@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { BET_LEVELS } from '../constants';
-import { ChevronUp, ChevronDown, Coins, Maximize, Volume2, VolumeX, Info, Repeat, StopCircle, Zap } from 'lucide-react';
+import { ChevronUp, ChevronDown, Coins, Maximize, Volume2, VolumeX, Info, Repeat, StopCircle, Sparkles } from 'lucide-react';
 import { SoundManager } from '../utils/audio';
 
 interface ControlsProps {
@@ -8,6 +8,7 @@ interface ControlsProps {
   bet: number;
   setBet: (amount: number) => void;
   spin: () => void;
+  onGamble: () => void; // Restored
   spinning: boolean;
   lastWin: number;
   onFullScreen: () => void;
@@ -15,15 +16,16 @@ interface ControlsProps {
   onOpenAutoplay: () => void;
   onStopAutoplay: () => void;
   cooldown?: boolean;
+  isGambling?: boolean; // Restored
   isAutoplayActive?: boolean;
   autoplayCount?: number;
-  freeSpinsLeft: number; // New Prop
+  freeSpinsLeft: number;
 }
 
 const Controls: React.FC<ControlsProps> = ({ 
-    balance, bet, setBet, spin, spinning, lastWin, 
+    balance, bet, setBet, spin, onGamble, spinning, lastWin, 
     onFullScreen, onOpenPaytable, onOpenAutoplay, onStopAutoplay,
-    cooldown = false, isAutoplayActive = false, autoplayCount = 0,
+    cooldown = false, isGambling = false, isAutoplayActive = false, autoplayCount = 0,
     freeSpinsLeft = 0
 }) => {
   const [isMuted, setIsMuted] = useState(SoundManager.getMuted());
@@ -83,7 +85,7 @@ const Controls: React.FC<ControlsProps> = ({
                  <button onClick={toggleSound} className="w-9 h-9 flex items-center justify-center text-[#C8AA6E] border border-[#3C3C41] bg-[#1E2328] rounded active:bg-[#C8AA6E]/20">
                     {isMuted ? <VolumeX size={18} /> : <Volume2 size={18} />}
                  </button>
-                 <button onClick={onOpenPaytable} disabled={isLocked} className="w-9 h-9 flex items-center justify-center text-[#C8AA6E] border border-[#3C3C41] bg-[#1E2328] rounded disabled:opacity-50 active:bg-[#C8AA6E]/20">
+                 <button onClick={onOpenPaytable} disabled={isLocked || isGambling} className="w-9 h-9 flex items-center justify-center text-[#C8AA6E] border border-[#3C3C41] bg-[#1E2328] rounded disabled:opacity-50 active:bg-[#C8AA6E]/20">
                     <Info size={18} />
                  </button>
                  <button onClick={onFullScreen} className="w-9 h-9 flex items-center justify-center text-[#C8AA6E] border border-[#3C3C41] bg-[#1E2328] rounded active:bg-[#C8AA6E]/20">
@@ -108,7 +110,7 @@ const Controls: React.FC<ControlsProps> = ({
                         {autoplayCount}
                     </span>
                 </div>
-             ) : (lastWin > 0) ? (
+             ) : (lastWin > 0 || isGambling) ? (
                 <div className="flex flex-col items-center animate-bounce">
                     <span className="text-[#C8AA6E] text-xs font-bold tracking-[0.2em] uppercase">CÂȘTIG</span>
                     <span className="text-3xl font-lol font-black text-[#F0E6D2] drop-shadow-[0_0_10px_#C8AA6E]">
@@ -129,7 +131,7 @@ const Controls: React.FC<ControlsProps> = ({
             <div className={`flex items-center bg-[#1E2328] border ${freeSpinsLeft > 0 ? 'border-[#D13639] opacity-70' : 'border-[#3C3C41]'} rounded h-10 md:h-12 shrink-0`}>
                 <button 
                     onClick={decreaseBet} 
-                    disabled={isLocked || currentBetIndex === 0}
+                    disabled={isLocked || currentBetIndex === 0 || isGambling}
                     className="w-8 md:w-10 h-full flex items-center justify-center text-[#C8AA6E] hover:bg-white/5 disabled:opacity-30 active:scale-95 transition-transform"
                 >
                     <ChevronDown size={16} />
@@ -142,7 +144,7 @@ const Controls: React.FC<ControlsProps> = ({
 
                 <button 
                     onClick={increaseBet} 
-                    disabled={isLocked || currentBetIndex === BET_LEVELS.length - 1}
+                    disabled={isLocked || currentBetIndex === BET_LEVELS.length - 1 || isGambling}
                     className="w-8 md:w-10 h-full flex items-center justify-center text-[#C8AA6E] hover:bg-white/5 disabled:opacity-30 active:scale-95 transition-transform"
                 >
                     <ChevronUp size={16} />
@@ -154,7 +156,7 @@ const Controls: React.FC<ControlsProps> = ({
                 
                 {/* Desktop Utils */}
                 <div className="hidden md:flex gap-2">
-                    <button onClick={onOpenPaytable} disabled={isLocked} className="w-12 h-12 border border-[#C8AA6E]/30 bg-[#1E2328] flex items-center justify-center text-[#C8AA6E] hover:bg-[#C8AA6E]/10 transition-colors">
+                    <button onClick={onOpenPaytable} disabled={isLocked || isGambling} className="w-12 h-12 border border-[#C8AA6E]/30 bg-[#1E2328] flex items-center justify-center text-[#C8AA6E] hover:bg-[#C8AA6E]/10 transition-colors">
                         <Info size={20} />
                     </button>
                     <button onClick={toggleSound} className="w-12 h-12 border border-[#C8AA6E]/30 bg-[#1E2328] flex items-center justify-center text-[#C8AA6E] hover:bg-[#C8AA6E]/10 transition-colors">
@@ -176,38 +178,59 @@ const Controls: React.FC<ControlsProps> = ({
                 ) : (
                     <button 
                         onClick={onOpenAutoplay}
-                        disabled={isLocked}
+                        disabled={isLocked || isGambling}
                         className="h-10 md:h-12 w-10 md:w-12 border border-[#0AC8B9] bg-[#1E2328] flex items-center justify-center text-[#0AC8B9] hover:bg-[#0AC8B9]/20 active:scale-95 transition-all disabled:opacity-30 disabled:border-[#3C3C41] shrink-0"
                     >
                         <Repeat size={20} />
                     </button>
                 )}
 
+                {/* Gamble Button - RESTORED */}
+                <button 
+                    onClick={onGamble}
+                    disabled={isLocked || lastWin <= 0 || isGambling}
+                    className={`
+                        h-10 md:h-12 px-2 md:px-4 border font-bold text-xs md:text-sm uppercase tracking-wider transition-all
+                        flex items-center justify-center gap-1 shrink-0
+                        ${lastWin > 0 && !isLocked && !isGambling
+                            ? 'border-[#C8AA6E] bg-[#C8AA6E]/10 text-[#C8AA6E] animate-pulse shadow-[0_0_10px_#C8AA6E]' 
+                            : 'border-[#3C3C41] text-[#5B5A56] opacity-50'}
+                        ${freeSpinsLeft > 0 ? 'hidden' : ''} 
+                    `}
+                >
+                    <Sparkles size={14} />
+                    <span className="hidden sm:inline landscape:hidden lg:landscape:inline ml-1">RISCĂ</span>
+                </button>
+
                 {/* SPIN / COLLECT Button */}
                 <button
                     onClick={spin}
-                    disabled={(!spinning && balance < bet && !freeSpinsLeft) || cooldown || isAutoplayActive}
+                    disabled={(!spinning && balance < bet && !freeSpinsLeft && !isGambling) || cooldown || isAutoplayActive}
                     className={`
                         h-10 md:h-12 min-w-[80px] md:min-w-[120px] w-28 md:w-40 font-lol font-black text-sm md:text-xl uppercase tracking-wider transition-all
                         flex items-center justify-center shadow-lg active:scale-95 shrink-0
                         ${cooldown 
                             ? 'bg-[#1E2328] border-2 border-[#5B5A56] text-[#5B5A56] cursor-not-allowed'
-                            : freeSpinsLeft > 0
-                                ? 'bg-[#D13639] border-2 border-[#ff4d4d] text-[#010A13] hover:brightness-110 animate-pulse shadow-[0_0_20px_#D13639]' // Free Spin Mode
-                                : !spinning && balance < bet 
-                                    ? 'bg-[#D13639]/20 border-2 border-[#D13639] text-[#D13639]' 
-                                    : spinning || isAutoplayActive
-                                        ? 'bg-[#C8AA6E]/10 border-2 border-[#C8AA6E] text-[#C8AA6E]'
-                                        : 'bg-gradient-to-b from-[#C8AA6E] to-[#A08855] border-2 border-[#F0E6D2] text-[#010A13] hover:brightness-110 shadow-[0_0_15px_rgba(200,170,110,0.4)]'}
+                            : isGambling 
+                                ? 'bg-[#0AC8B9] border-2 border-[#0AC8B9] text-black hover:bg-[#A0E6E1] animate-pulse' // Collect Mode
+                                : freeSpinsLeft > 0
+                                    ? 'bg-[#D13639] border-2 border-[#ff4d4d] text-[#010A13] hover:brightness-110 animate-pulse shadow-[0_0_20px_#D13639]'
+                                    : !spinning && balance < bet 
+                                        ? 'bg-[#D13639]/20 border-2 border-[#D13639] text-[#D13639]' 
+                                        : spinning || isAutoplayActive
+                                            ? 'bg-[#C8AA6E]/10 border-2 border-[#C8AA6E] text-[#C8AA6E]'
+                                            : 'bg-gradient-to-b from-[#C8AA6E] to-[#A08855] border-2 border-[#F0E6D2] text-[#010A13] hover:brightness-110 shadow-[0_0_15px_rgba(200,170,110,0.4)]'}
                     `}
                 >
                     {spinning || isAutoplayActive ? 'STOP' : (
-                        freeSpinsLeft > 0 ? (
-                            <div className="flex flex-col items-center leading-none">
-                                <span className="text-[10px] md:text-xs">FREE SPIN</span>
-                                <span>{freeSpinsLeft} LEFT</span>
-                            </div>
-                        ) : (lastWin > 0 ? 'COLECT' : 'START')
+                        isGambling ? 'COLECT' : (
+                            freeSpinsLeft > 0 ? (
+                                <div className="flex flex-col items-center leading-none">
+                                    <span className="text-[10px] md:text-xs">FREE SPIN</span>
+                                    <span>{freeSpinsLeft} LEFT</span>
+                                </div>
+                            ) : (lastWin > 0 ? 'COLECT' : 'START')
+                        )
                     )}
                 </button>
             </div>

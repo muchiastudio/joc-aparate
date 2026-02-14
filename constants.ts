@@ -3,7 +3,7 @@ import { SlotSymbol, Payline } from './types';
 // LoL Themed Symbols
 
 export const SYMBOLS: SlotSymbol[] = [
-  { 
+ { 
     id: 99, 
     name: 'ZOZO (WILD)', 
     icon: 'ghost', // Using ghost icon for void

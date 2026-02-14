@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Play, AlertTriangle, ShieldCheck, Coins } from 'lucide-react';
+import { X, Play, AlertTriangle, ShieldCheck, Coins, Zap } from 'lucide-react';
 import { SoundManager } from '../utils/audio';
 
 interface AutoplaySettingsProps {
@@ -14,6 +14,7 @@ export interface AutoplayConfig {
   stopOnBonus: boolean;
   singleWinLimit: number | null;
   lossLimit: number | null;
+  turbo: boolean;
 }
 
 const SPIN_OPTIONS = [10, 20, 50, 100];
@@ -23,6 +24,7 @@ const AutoplaySettings: React.FC<AutoplaySettingsProps> = ({ onClose, onStart, c
   const [stopOnWin, setStopOnWin] = useState(false);
   const [singleWinLimit, setSingleWinLimit] = useState<string>('');
   const [lossLimit, setLossLimit] = useState<string>('');
+  const [turbo, setTurbo] = useState(false);
 
   const handleStart = () => {
     SoundManager.playClick();
@@ -32,6 +34,7 @@ const AutoplaySettings: React.FC<AutoplaySettingsProps> = ({ onClose, onStart, c
       stopOnBonus: true, // Always stop on 'Bonus' (Scatter wins >= 3 usually)
       singleWinLimit: singleWinLimit ? parseInt(singleWinLimit) : null,
       lossLimit: lossLimit ? parseInt(lossLimit) : null,
+      turbo
     });
     onClose();
   };
@@ -80,8 +83,20 @@ const AutoplaySettings: React.FC<AutoplaySettingsProps> = ({ onClose, onStart, c
 
             {/* Stop Conditions */}
             <div className="space-y-3">
-                <label className="text-[#A09B8C] text-xs font-bold uppercase mb-2 block">Condiții de Oprire</label>
+                <label className="text-[#A09B8C] text-xs font-bold uppercase mb-2 block">Setări Avansate</label>
                 
+                {/* Turbo Mode */}
+                <label className={`flex items-center gap-3 p-3 border rounded cursor-pointer transition-all ${turbo ? 'bg-[#D13639]/10 border-[#D13639]' : 'bg-[#1E2328] border-[#3C3C41]'}`}>
+                    <div className={`w-5 h-5 border flex items-center justify-center transition-colors ${turbo ? 'bg-[#D13639] border-[#D13639]' : 'border-[#5B5A56]'}`}>
+                        {turbo && <Zap size={14} className="text-white fill-current" />}
+                    </div>
+                    <input type="checkbox" className="hidden" checked={turbo} onChange={(e) => setTurbo(e.target.checked)} />
+                    <div className="flex flex-col">
+                        <span className={`text-sm font-bold ${turbo ? 'text-[#D13639]' : 'text-[#F0E6D2]'}`}>MOD TURBO ⚡</span>
+                        <span className="text-[10px] text-[#A09B8C]">Viteză maximă de joc</span>
+                    </div>
+                </label>
+
                 {/* Stop on Any Win */}
                 <label className="flex items-center gap-3 p-3 bg-[#1E2328] border border-[#3C3C41] rounded cursor-pointer hover:bg-[#2A3036]">
                     <div className={`w-5 h-5 border flex items-center justify-center ${stopOnWin ? 'bg-[#0AC8B9] border-[#0AC8B9]' : 'border-[#5B5A56]'}`}>

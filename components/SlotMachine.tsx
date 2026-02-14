@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import Reel from './Reel';
 import Controls from './Controls';
+import GambleGame from './GambleGame';
 import Paytable from './Paytable';
 import AutoplaySettings, { AutoplayConfig } from './AutoplaySettings';
 import JackpotDisplay from './JackpotDisplay';
@@ -180,6 +181,10 @@ const SlotMachine: React.FC = () => {
   const [winCooldown, setWinCooldown] = useState(false);
   const [showMegaWin, setShowMegaWin] = useState(false); // State for "NEBUNULE" animation
 
+  // Gamble State (Restored)
+  const [isGambling, setIsGambling] = useState(false);
+  const [gambleAmount, setGambleAmount] = useState(0);
+
   // Free Spins State
   const [freeSpinsLeft, setFreeSpinsLeft] = useState(0);
   const [isBonusTriggered, setIsBonusTriggered] = useState(false);
@@ -208,6 +213,12 @@ const SlotMachine: React.FC = () => {
           let delay = 1500;
           if (isBonusTriggered) delay = 4000;
           if (showMegaWin) delay = 5000; // Give time for the TSSSS animation
+          
+          // Speed up cooldown in turbo mode unless it's a special animation
+          const isTurbo = isAutoplayActive && autoplayConfig?.turbo;
+          if (isTurbo && !isBonusTriggered && !showMegaWin && jackpotWinAmount === 0) {
+              delay = 500; 
+          }
 
           timeout = setTimeout(() => {
               setWinCooldown(false);
@@ -222,19 +233,22 @@ const SlotMachine: React.FC = () => {
           }, delay); 
       }
       return () => clearTimeout(timeout);
-  }, [winCooldown, freeSpinsLeft, isGameActive, isBonusTriggered, showMegaWin]);
+  }, [winCooldown, freeSpinsLeft, isGameActive, isBonusTriggered, showMegaWin, isAutoplayActive, autoplayConfig, jackpotWinAmount]);
 
   // AUTOPLAY LOGIC
   useEffect(() => {
-    if (isAutoplayActive && !isGameActive && !winCooldown && autoplayCount > 0 && freeSpinsLeft === 0) {
+    if (isAutoplayActive && !isGameActive && !winCooldown && autoplayCount > 0 && freeSpinsLeft === 0 && !isGambling) {
+        // TURBO LOGIC: Reduce delay between spins
+        const delay = autoplayConfig?.turbo ? 200 : 800;
+        
         autoSpinTimerRef.current = setTimeout(() => {
             handleSpin();
-        }, 800);
+        }, delay);
     } else if (isAutoplayActive && autoplayCount <= 0 && !isGameActive && !winCooldown && freeSpinsLeft === 0) {
         setIsAutoplayActive(false);
     }
     return () => { if (autoSpinTimerRef.current) clearTimeout(autoSpinTimerRef.current); }
-  }, [isAutoplayActive, isGameActive, winCooldown, autoplayCount, freeSpinsLeft]);
+  }, [isAutoplayActive, isGameActive, winCooldown, autoplayCount, freeSpinsLeft, isGambling, autoplayConfig]);
 
 
   const handleFullScreen = () => {
@@ -284,14 +298,7 @@ const SlotMachine: React.FC = () => {
 
           if (!hitJackpot && !bonusTriggeredNow) {
               // Logic for 100x Win Animation (BASE GAME ONLY)
-              // We check if finalWin >= bet * 100 AND we are NOT currently in free spins mode (triggered before this spin)
-              // Note: freeSpinsLeft is decremented at start of spin, so 0 means base game unless we just triggered it.
-              // To be safe, "Base Game" means we weren't using a free spin. 
-              // We can check this by seeing if we deducted balance in handleSpin, or simpler: 
-              // The state `freeSpinsLeft` would be > 0 if we were IN a free spin round.
-              // However, since we might have just added free spins (bonusTriggeredNow), we should check if we *started* with free spins.
-              // For simplicity, sticking to the user prompt "IN JOCUL DE BAZA":
-              const isBaseGameWin = freeSpinsLeft === 0 && !bonusTriggeredNow; // Not in FS, and not just triggered bonus (optional)
+              const isBaseGameWin = freeSpinsLeft === 0 && !bonusTriggeredNow; 
               
               if (isBaseGameWin && finalWin >= bet * 100) {
                   setShowMegaWin(true);
@@ -302,13 +309,13 @@ const SlotMachine: React.FC = () => {
               }
           }
 
-          // Add to balance immediately (No Gamble anymore)
+          // Add to balance immediately (We deduct if they gamble)
           setBalance(prev => prev + finalWin);
 
           // MAX WIN CAP (256x) - Auto Stop
           if (finalWin >= bet * MAX_WIN_MULTIPLIER) {
               stopAutoplay();
-              // Force clear any remaining free spins if max win hit? Usually games continue, but "collect automat" implies stop.
+              // Force clear any remaining free spins if max win hit
               setFreeSpinsLeft(0); 
               alert(`MAX WIN REACHED! (${finalWin})`);
               return;
@@ -327,7 +334,6 @@ const SlotMachine: React.FC = () => {
       } else {
           // No win logic
           if (bonusTriggeredNow) {
-              // Triggered bonus but no line win (possible if scatter pays 0, but here scatter pays)
               setWinCooldown(true);
           }
           
@@ -344,7 +350,22 @@ const SlotMachine: React.FC = () => {
       }
   };
 
+  const handleGambleCollect = () => {
+    SoundManager.playWin('small');
+    setBalance(prev => prev + gambleAmount);
+    
+    setIsGambling(false);
+    // Reset win state so user can't gamble again until next spin
+    setLastWin(0);
+    setWinningLines([]);
+  };
+
   const handleSpin = useCallback(() => {
+    if (isGambling) {
+        handleGambleCollect();
+        return;
+    }
+
     if (winCooldown) return;
 
     if (isGameActive) {
@@ -376,6 +397,8 @@ const SlotMachine: React.FC = () => {
     SoundManager.playClick();
     SoundManager.playSpinStart();
 
+    setIsGambling(false);
+    setGambleAmount(0);
     setIsPaytableOpen(false);
     setIsAutoplaySettingsOpen(false);
     setJackpotWinAmount(0);
@@ -392,8 +415,11 @@ const SlotMachine: React.FC = () => {
     nextGridRef.current = nextGrid;
     setGrid(nextGrid);
 
-    const INITIAL_DELAY = 600; 
-    const DELAY_PER_REEL = 300; 
+    // TURBO LOGIC
+    const isTurbo = isAutoplayActive && autoplayConfig?.turbo;
+    const INITIAL_DELAY = isTurbo ? 200 : 600; 
+    const DELAY_PER_REEL = isTurbo ? 100 : 300; 
+    
     timerRefs.current = [];
 
     nextGrid.forEach((_, colIndex) => {
@@ -416,7 +442,43 @@ const SlotMachine: React.FC = () => {
     }, totalDuration);
     timerRefs.current.push(finalTimeoutId);
 
-  }, [balance, bet, isGameActive, winCooldown, isAutoplayActive, autoplayConfig, startingAutoBalance, freeSpinsLeft]); 
+  }, [balance, bet, isGameActive, winCooldown, isGambling, gambleAmount, isAutoplayActive, autoplayConfig, startingAutoBalance, freeSpinsLeft]); 
+
+  // --- Gamble Logic Handlers ---
+  const handleStartGamble = () => {
+    // Block if cooling down
+    if (winCooldown) return;
+    // Block gamble if we hit jackpot or Max Win Cap
+    if (jackpotWinAmount > 0 || lastWin >= bet * MAX_WIN_MULTIPLIER) return;
+
+    SoundManager.playClick();
+    if (lastWin > 0) {
+        // If we are gambling, we must stop autoplay
+        if (isAutoplayActive) stopAutoplay();
+
+        // Deduct from balance to table (since we auto-collected in processWins, we take it back)
+        setBalance(prev => prev - lastWin);
+        setGambleAmount(lastWin);
+        setIsGambling(true);
+    }
+  };
+
+  const handleGambleWin = () => {
+    SoundManager.playGambleWin();
+    setGambleAmount(prev => {
+        const newAmt = prev * 2;
+        setLastWin(newAmt);
+        return newAmt;
+    });
+  };
+
+  const handleGambleLose = () => {
+    SoundManager.playGambleLose();
+    setGambleAmount(0);
+    setLastWin(0);
+    setIsGambling(false);
+    setWinningLines([]);
+  };
 
   const handleStartAutoplay = (config: AutoplayConfig) => {
       setAutoplayConfig(config);
@@ -482,7 +544,7 @@ const SlotMachine: React.FC = () => {
                     ))}
 
                     {/* Paylines Overlay */}
-                    {winningLines.length > 0 && !isGameActive && (
+                    {winningLines.length > 0 && !isGameActive && !isGambling && (
                         <div className="absolute inset-0 pointer-events-none z-10">
                             <svg className="w-full h-full" preserveAspectRatio="none">
                                 {winningLines.map((win, i) => {
@@ -536,6 +598,16 @@ const SlotMachine: React.FC = () => {
                         </div>
                     )}
 
+                    {/* Gamble Game Overlay */}
+                    {isGambling && (
+                        <GambleGame 
+                            amount={gambleAmount}
+                            onDouble={handleGambleWin}
+                            onLose={handleGambleLose}
+                            onCollect={handleGambleCollect}
+                        />
+                    )}
+
                     {/* Modals */}
                     {isPaytableOpen && <Paytable onClose={() => setIsPaytableOpen(false)} currentBet={bet} />}
                     {isAutoplaySettingsOpen && <AutoplaySettings onClose={() => setIsAutoplaySettingsOpen(false)} onStart={handleStartAutoplay} currentBalance={balance} />}
@@ -550,6 +622,7 @@ const SlotMachine: React.FC = () => {
                 bet={bet}
                 setBet={setBet}
                 spin={handleSpin}
+                onGamble={handleStartGamble}
                 spinning={isGameActive}
                 lastWin={lastWin}
                 onFullScreen={handleFullScreen}
@@ -557,6 +630,7 @@ const SlotMachine: React.FC = () => {
                 onOpenAutoplay={() => setIsAutoplaySettingsOpen(true)}
                 onStopAutoplay={stopAutoplay}
                 cooldown={winCooldown}
+                isGambling={isGambling}
                 isAutoplayActive={isAutoplayActive}
                 autoplayCount={autoplayCount}
                 freeSpinsLeft={freeSpinsLeft}
