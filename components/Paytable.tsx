@@ -54,12 +54,12 @@ const Paytable: React.FC<PaytableProps> = ({ onClose, currentBet }) => {
                         
                         return (
                             <div key={symbol.id} className="bg-[#1E2328]/50 border border-[#3C3C41] p-4 flex flex-col items-center gap-3 rounded hover:border-[#C8AA6E]/50 transition-colors">
-                                {/* Icon Display */}
-                                <div className="w-16 h-16 flex items-center justify-center bg-black/40 rounded-full border border-[#C8AA6E]/30 mb-2">
+                                {/* Icon/Image Display - Clean, no circle background */}
+                                <div className="w-20 h-20 flex items-center justify-center mb-2">
                                      {symbol.image ? (
-                                         <img src={symbol.image} alt={symbol.name} className="w-10 h-10 object-contain" />
+                                         <img src={symbol.image} alt={symbol.name} className="w-full h-full object-contain drop-shadow-md" />
                                      ) : (
-                                         <IconComponent size={32} className={symbol.color} />
+                                         <IconComponent size={48} className={symbol.color} />
                                      )}
                                 </div>
                                 

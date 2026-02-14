@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import Reel from './Reel';
 import Controls from './Controls';
 import GambleGame from './GambleGame';
@@ -119,6 +119,9 @@ const SlotMachine: React.FC = () => {
   const [lastWin, setLastWin] = useState(0);
   const [winningLines, setWinningLines] = useState<WinData[]>([]);
   
+  // Cooldown State for UI lock after win
+  const [winCooldown, setWinCooldown] = useState(false);
+
   // Gamble State
   const [isGambling, setIsGambling] = useState(false);
   const [gambleAmount, setGambleAmount] = useState(0);
@@ -129,6 +132,17 @@ const SlotMachine: React.FC = () => {
   // Refs for Quick Stop Logic
   const timerRefs = useRef<ReturnType<typeof setTimeout>[]>([]);
   const nextGridRef = useRef<number[][]>([]);
+
+  // Clear cooldown effect
+  useEffect(() => {
+      let timeout: ReturnType<typeof setTimeout>;
+      if (winCooldown) {
+          timeout = setTimeout(() => {
+              setWinCooldown(false);
+          }, 1000); // 1 second cooldown
+      }
+      return () => clearTimeout(timeout);
+  }, [winCooldown]);
 
   // Full Screen Logic
   const handleFullScreen = () => {
@@ -152,6 +166,9 @@ const SlotMachine: React.FC = () => {
           setLastWin(totalWin);
           setWinningLines(newWins);
           
+          // Lock UI for 1 second to let user see the win
+          setWinCooldown(true);
+
           if (totalWin > bet * 10) {
             SoundManager.playWin('big');
           } else {
@@ -160,7 +177,28 @@ const SlotMachine: React.FC = () => {
       }
   };
 
+  // Define Gamble Collect function early so handleSpin can use it
+  const handleGambleCollect = () => {
+    SoundManager.playWin('small');
+    // Ensure we use the exact amount in the pot
+    setBalance(prev => prev + gambleAmount);
+    
+    setIsGambling(false);
+    // Reset win state so user can't gamble again until next spin
+    setLastWin(0);
+    setWinningLines([]);
+  };
+
   const handleSpin = useCallback(() => {
+    // If gambling, the main button acts as COLLECT
+    if (isGambling) {
+        handleGambleCollect();
+        return;
+    }
+
+    // Block action if in cooldown
+    if (winCooldown) return;
+
     // === QUICK STOP LOGIC ===
     if (isGameActive) {
         // Clear all pending reel stops
@@ -234,13 +272,15 @@ const SlotMachine: React.FC = () => {
 
     timerRefs.current.push(finalTimeoutId);
 
-  }, [balance, bet, isGameActive]);
+  }, [balance, bet, isGameActive, winCooldown, isGambling, gambleAmount]); // Added isGambling/gambleAmount dependencies
 
   const handleStartGamble = () => {
+    // Block if cooling down
+    if (winCooldown) return;
+
     SoundManager.playClick();
     if (lastWin > 0) {
-        // NOTE: The money is already in the balance from the win. 
-        // We deduct it to put it "on the table".
+        // Deduct from balance to table
         setBalance(prev => prev - lastWin);
         setGambleAmount(lastWin);
         setIsGambling(true);
@@ -249,9 +289,11 @@ const SlotMachine: React.FC = () => {
 
   const handleGambleWin = () => {
     SoundManager.playGambleWin();
-    const newAmount = gambleAmount * 2;
-    setGambleAmount(newAmount);
-    setLastWin(newAmount); // Update last win to show the new potential
+    setGambleAmount(prev => {
+        const newAmt = prev * 2;
+        setLastWin(newAmt);
+        return newAmt;
+    });
   };
 
   const handleGambleLose = () => {
@@ -259,16 +301,6 @@ const SlotMachine: React.FC = () => {
     setGambleAmount(0);
     setLastWin(0);
     setIsGambling(false);
-    setWinningLines([]);
-  };
-
-  const handleGambleCollect = () => {
-    SoundManager.playWin('small');
-    // Add the current table amount back to balance
-    setBalance(prev => prev + gambleAmount);
-    setIsGambling(false);
-    // Reset win state so user can't gamble again until next spin
-    setLastWin(0);
     setWinningLines([]);
   };
 
@@ -295,116 +327,128 @@ const SlotMachine: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen w-full relative overflow-hidden bg-[#010A13]">
+    <div className="flex flex-col items-center justify-center h-full w-full relative overflow-hidden bg-[#010A13]">
       
       {/* Background Graphic */}
       <div className="absolute inset-0 bg-cover bg-center z-0 opacity-40" style={{ backgroundImage: "url('https://images.unsplash.com/photo-1542751371-adc38448a05e?q=80&w=2670&auto=format&fit=crop')" }}></div>
       <div className="absolute inset-0 bg-gradient-to-t from-[#010A13] via-[#010A13]/80 to-transparent z-0"></div>
 
       {/* Main Container */}
-      <div className="relative z-10 w-full max-w-[1300px] px-2 md:px-8 flex flex-col gap-4 md:gap-8 h-full justify-center">
+      <div className="relative z-10 w-full h-full max-w-[1300px] flex flex-col justify-center">
         
-        {/* Header - LoL Logo Style */}
-        <div className="flex flex-col items-center justify-center mb-1 md:mb-4 shrink-0">
-            <h1 className="font-lol text-3xl md:text-7xl font-bold text-[#C8AA6E] tracking-widest drop-shadow-[0_2px_10px_rgba(0,0,0,0.8)] border-b-2 border-[#C8AA6E] pb-2 text-center">
-                LEAGUE <span className="text-[#F0E6D2] text-xl md:text-5xl inline mx-2">OF</span> SLOTS
+        {/* Header - Hidden on Mobile Landscape to save space */}
+        <div className="flex-shrink-0 flex flex-col items-center justify-center py-2 md:py-4 landscape:hidden md:landscape:flex">
+            <h1 className="font-lol text-2xl md:text-5xl lg:text-7xl font-bold text-[#C8AA6E] tracking-widest drop-shadow-[0_2px_10px_rgba(0,0,0,0.8)] border-b-2 border-[#C8AA6E] pb-2 text-center">
+                LEAGUE <span className="text-[#F0E6D2] text-xl md:text-3xl lg:text-5xl inline mx-2">OF</span> SLOTS
             </h1>
         </div>
 
-        {/* Game Area - Responsive Aspect Ratio 
-            Mobile: aspect-[3/4] to prevent squashing
-            Desktop: aspect-[2/1] for cinematic feel
-        */}
-        <div className="relative w-full mx-auto aspect-[3/4] md:aspect-[16/9] lg:aspect-[2/1] max-w-[1100px] max-h-[70vh] border-[3px] border-[#C8AA6E] bg-[#010A13]/90 shadow-[0_0_40px_rgba(10,200,185,0.15)] overflow-hidden shrink-0">
+        {/* Game Area Wrapper - Centers the slot machine */}
+        <div className="flex-1 flex items-center justify-center w-full px-2 md:px-8 py-2 overflow-hidden">
             
-            {/* Decorative Corner Ornaments */}
-            <div className="absolute top-0 left-0 w-8 h-8 md:w-16 md:h-16 border-t-4 border-l-4 border-[#C8AA6E] z-20"></div>
-            <div className="absolute top-0 right-0 w-8 h-8 md:w-16 md:h-16 border-t-4 border-r-4 border-[#C8AA6E] z-20"></div>
-            <div className="absolute bottom-0 left-0 w-8 h-8 md:w-16 md:h-16 border-b-4 border-l-4 border-[#C8AA6E] z-20"></div>
-            <div className="absolute bottom-0 right-0 w-8 h-8 md:w-16 md:h-16 border-b-4 border-r-4 border-[#C8AA6E] z-20"></div>
-
-            {/* Reel Container */}
-            <div className="flex h-full w-full relative">
-                 {/* Reels */}
-                 {grid.map((colSymbols, colIndex) => (
-                    <div key={colIndex} className="flex-1 h-full z-0 relative">
-                        <Reel 
-                            symbols={colSymbols} 
-                            spinning={reelSpinning[colIndex]} 
-                            delay={colIndex}
-                            winHighlightRows={getWinningCells(colIndex)}
-                        />
-                    </div>
-                ))}
-
-                 {/* Paylines Overlay */}
-                {winningLines.length > 0 && !isGameActive && !isGambling && (
-                    <div className="absolute inset-0 pointer-events-none z-10">
-                        <svg className="w-full h-full" preserveAspectRatio="none">
-                            {winningLines.map((win, i) => {
-                                if (win.lineIndex === -1) return null;
-                                const line = PAYLINES.find(p => p.id === win.lineIndex);
-                                if(!line) return null;
-
-                                const getCoord = (col: number, row: number) => {
-                                    // Adjusted for tighter centers
-                                    const x = (col * 20) + 10; 
-                                    const y = (row * 33.33) + 16.66;
-                                    return `${x}% ${y}%`;
-                                }
-
-                                const points = line.positions.slice(0, win.matchCount).map((row, col) => getCoord(col, row)).join(',');
-
-                                return (
-                                    <polyline 
-                                        key={i}
-                                        points={points}
-                                        fill="none"
-                                        stroke={line.color}
-                                        strokeWidth="6"
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                        className="drop-shadow-[0_0_8px_rgba(0,0,0,1)] animate-pulse"
-                                        style={{ vectorEffect: 'non-scaling-stroke' }} 
-                                    />
-                                )
-                            })}
-                        </svg>
-                    </div>
-                )}
-
-                 {/* Gamble Game Overlay */}
-                 {isGambling && (
-                    <GambleGame 
-                        amount={gambleAmount}
-                        onDouble={handleGambleWin}
-                        onLose={handleGambleLose}
-                        onCollect={handleGambleCollect}
-                    />
-                )}
+            {/* 
+                Game Area Aspect Ratio Logic:
+                Mobile Portrait: 16/10 (Slightly taller than square)
+                Mobile Landscape: 16/9 (Widescreen) 
+            */}
+            <div className="relative w-full 
+                aspect-[16/10] md:aspect-[16/9] lg:aspect-[2/1] 
+                max-h-[70vh] landscape:max-h-[75vh]
+                border-[3px] border-[#C8AA6E] bg-[#010A13]/90 shadow-[0_0_40px_rgba(10,200,185,0.15)] overflow-hidden shrink-0">
                 
-                {/* Paytable Modal */}
-                {isPaytableOpen && (
-                    <Paytable 
-                        onClose={() => setIsPaytableOpen(false)}
-                        currentBet={bet}
-                    />
-                )}
+                {/* Decorative Corner Ornaments */}
+                <div className="absolute top-0 left-0 w-8 h-8 md:w-16 md:h-16 border-t-4 border-l-4 border-[#C8AA6E] z-20"></div>
+                <div className="absolute top-0 right-0 w-8 h-8 md:w-16 md:h-16 border-t-4 border-r-4 border-[#C8AA6E] z-20"></div>
+                <div className="absolute bottom-0 left-0 w-8 h-8 md:w-16 md:h-16 border-b-4 border-l-4 border-[#C8AA6E] z-20"></div>
+                <div className="absolute bottom-0 right-0 w-8 h-8 md:w-16 md:h-16 border-b-4 border-r-4 border-[#C8AA6E] z-20"></div>
+
+                {/* Reel Container */}
+                <div className="flex h-full w-full relative">
+                    {/* Reels */}
+                    {grid.map((colSymbols, colIndex) => (
+                        <div key={colIndex} className="flex-1 h-full z-0 relative">
+                            <Reel 
+                                symbols={colSymbols} 
+                                spinning={reelSpinning[colIndex]} 
+                                delay={colIndex}
+                                winHighlightRows={getWinningCells(colIndex)}
+                            />
+                        </div>
+                    ))}
+
+                    {/* Paylines Overlay */}
+                    {winningLines.length > 0 && !isGameActive && !isGambling && (
+                        <div className="absolute inset-0 pointer-events-none z-10">
+                            <svg className="w-full h-full" preserveAspectRatio="none">
+                                {winningLines.map((win, i) => {
+                                    if (win.lineIndex === -1) return null;
+                                    const line = PAYLINES.find(p => p.id === win.lineIndex);
+                                    if(!line) return null;
+
+                                    const getCoord = (col: number, row: number) => {
+                                        // Adjusted for tighter centers
+                                        const x = (col * 20) + 10; 
+                                        const y = (row * 33.33) + 16.66;
+                                        return `${x}% ${y}%`;
+                                    }
+
+                                    const points = line.positions.slice(0, win.matchCount).map((row, col) => getCoord(col, row)).join(',');
+
+                                    return (
+                                        <polyline 
+                                            key={i}
+                                            points={points}
+                                            fill="none"
+                                            stroke={line.color}
+                                            strokeWidth="6"
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            className="drop-shadow-[0_0_8px_rgba(0,0,0,1)] animate-pulse"
+                                            style={{ vectorEffect: 'non-scaling-stroke' }} 
+                                        />
+                                    )
+                                })}
+                            </svg>
+                        </div>
+                    )}
+
+                    {/* Gamble Game Overlay */}
+                    {isGambling && (
+                        <GambleGame 
+                            amount={gambleAmount}
+                            onDouble={handleGambleWin}
+                            onLose={handleGambleLose}
+                            onCollect={handleGambleCollect}
+                        />
+                    )}
+                    
+                    {/* Paytable Modal */}
+                    {isPaytableOpen && (
+                        <Paytable 
+                            onClose={() => setIsPaytableOpen(false)}
+                            currentBet={bet}
+                        />
+                    )}
+                </div>
             </div>
         </div>
 
         {/* Controls - LoL Client Footer */}
-        <Controls 
-            balance={balance}
-            bet={bet}
-            setBet={setBet}
-            spin={handleSpin}
-            onGamble={handleStartGamble}
-            spinning={isGameActive}
-            lastWin={lastWin}
-            onFullScreen={handleFullScreen}
-            onOpenPaytable={() => setIsPaytableOpen(true)}
-        />
+        <div className="flex-shrink-0 w-full">
+            <Controls 
+                balance={balance}
+                bet={bet}
+                setBet={setBet}
+                spin={handleSpin}
+                onGamble={handleStartGamble}
+                spinning={isGameActive}
+                lastWin={lastWin}
+                onFullScreen={handleFullScreen}
+                onOpenPaytable={() => setIsPaytableOpen(true)}
+                cooldown={winCooldown}
+                isGambling={isGambling}
+            />
+        </div>
       </div>
 
     </div>

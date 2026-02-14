@@ -13,11 +13,19 @@ interface ControlsProps {
   lastWin: number;
   onFullScreen: () => void;
   onOpenPaytable: () => void;
+  cooldown?: boolean;
+  isGambling?: boolean;
 }
 
-const Controls: React.FC<ControlsProps> = ({ balance, bet, setBet, spin, onGamble, spinning, lastWin, onFullScreen, onOpenPaytable }) => {
+const Controls: React.FC<ControlsProps> = ({ 
+    balance, bet, setBet, spin, onGamble, spinning, lastWin, 
+    onFullScreen, onOpenPaytable, cooldown = false, isGambling = false 
+}) => {
   const [isMuted, setIsMuted] = useState(SoundManager.getMuted());
   const currentBetIndex = BET_LEVELS.indexOf(bet);
+  
+  // Interaction locked if spinning or in cooldown (but NOT if gambling, we need spin button to work as collect)
+  const isLocked = spinning || cooldown;
 
   const increaseBet = () => {
     SoundManager.playClick();
@@ -66,7 +74,8 @@ const Controls: React.FC<ControlsProps> = ({ balance, bet, setBet, spin, onGambl
                  {/* Mobile Utility Buttons */}
                  <button 
                     onClick={onOpenPaytable}
-                    className="md:hidden w-10 h-10 flex items-center justify-center text-[#C8AA6E] border border-[#C8AA6E]/30 bg-[#1E2328] rounded hover:bg-[#C8AA6E]/10"
+                    disabled={isLocked || isGambling}
+                    className="md:hidden w-10 h-10 flex items-center justify-center text-[#C8AA6E] border border-[#C8AA6E]/30 bg-[#1E2328] rounded hover:bg-[#C8AA6E]/10 disabled:opacity-50"
                  >
                     <Info size={20} />
                  </button>
@@ -87,7 +96,7 @@ const Controls: React.FC<ControlsProps> = ({ balance, bet, setBet, spin, onGambl
 
         {/* Win Notification */}
         <div className="flex-1 flex justify-center h-12 md:h-16 items-center order-first md:order-none w-full border-b border-[#C8AA6E]/20 md:border-none pb-2 md:pb-0">
-             {lastWin > 0 ? (
+             {lastWin > 0 || isGambling ? (
                 <div className="flex flex-col items-center animate-bounce">
                     <span className="text-[#C8AA6E] text-[10px] md:text-xs font-bold tracking-[0.3em] uppercase mb-1">VICTORIE</span>
                     <span className="text-4xl md:text-5xl font-lol font-black text-transparent bg-clip-text bg-gradient-to-b from-[#F0E6D2] to-[#C8AA6E] drop-shadow-[0_0_15px_rgba(200,170,110,0.6)]">
@@ -108,7 +117,7 @@ const Controls: React.FC<ControlsProps> = ({ balance, bet, setBet, spin, onGambl
             <div className="flex items-center bg-[#1E2328] border border-[#3C3C41] px-1 py-1 rounded">
                 <button 
                     onClick={decreaseBet} 
-                    disabled={spinning || currentBetIndex === 0}
+                    disabled={isLocked || currentBetIndex === 0 || isGambling}
                     className="w-8 h-8 md:w-10 md:h-10 flex items-center justify-center text-[#C8AA6E] hover:bg-[#3C3C41] transition-colors disabled:opacity-30"
                 >
                     <ChevronDown size={16} />
@@ -121,7 +130,7 @@ const Controls: React.FC<ControlsProps> = ({ balance, bet, setBet, spin, onGambl
 
                 <button 
                     onClick={increaseBet} 
-                    disabled={spinning || currentBetIndex === BET_LEVELS.length - 1}
+                    disabled={isLocked || currentBetIndex === BET_LEVELS.length - 1 || isGambling}
                     className="w-8 h-8 md:w-10 md:h-10 flex items-center justify-center text-[#C8AA6E] hover:bg-[#3C3C41] transition-colors disabled:opacity-30"
                 >
                     <ChevronUp size={16} />
@@ -134,7 +143,8 @@ const Controls: React.FC<ControlsProps> = ({ balance, bet, setBet, spin, onGambl
                 <div className="hidden md:flex gap-2">
                      <button 
                         onClick={onOpenPaytable}
-                        className="w-12 h-12 flex items-center justify-center text-[#C8AA6E] border border-[#C8AA6E]/30 bg-[#1E2328] hover:bg-[#C8AA6E]/10 transition-colors"
+                        disabled={isLocked || isGambling}
+                        className="w-12 h-12 flex items-center justify-center text-[#C8AA6E] border border-[#C8AA6E]/30 bg-[#1E2328] hover:bg-[#C8AA6E]/10 transition-colors disabled:opacity-50"
                         title="Tabel de Plăți"
                     >
                         <Info size={20} />
@@ -160,13 +170,13 @@ const Controls: React.FC<ControlsProps> = ({ balance, bet, setBet, spin, onGambl
                 {/* Gamble Button */}
                 <button 
                     onClick={onGamble}
-                    disabled={spinning || lastWin <= 0}
+                    disabled={isLocked || lastWin <= 0 || isGambling}
                     className={`
                         px-3 md:px-6 h-12 border border-[#C8AA6E] font-lol font-bold text-xs md:text-sm uppercase tracking-wider transition-all
                         flex items-center justify-center gap-2
-                        ${lastWin > 0 
+                        ${lastWin > 0 && !isLocked && !isGambling
                             ? 'bg-[#C8AA6E]/10 text-[#C8AA6E] hover:bg-[#C8AA6E] hover:text-[#010A13] hover:shadow-[0_0_15px_#C8AA6E]' 
-                            : 'bg-transparent text-[#5B5A56] border-[#3C3C41] cursor-not-allowed'}
+                            : 'bg-transparent text-[#5B5A56] border-[#3C3C41] cursor-not-allowed opacity-50'}
                     `}
                 >
                     <Sparkles size={16} className="hidden md:block"/>
@@ -176,18 +186,22 @@ const Controls: React.FC<ControlsProps> = ({ balance, bet, setBet, spin, onGambl
                 {/* Spin Button */}
                 <button
                     onClick={spin}
-                    disabled={!spinning && balance < bet}
+                    disabled={(!spinning && balance < bet && !isGambling) || cooldown}
                     className={`
                         btn-hex relative h-12 w-28 md:w-36 font-lol font-bold text-base md:text-lg uppercase tracking-wider transition-all
                         flex items-center justify-center gap-2
-                        ${!spinning && balance < bet 
-                                ? 'bg-[#D13639]/20 border-2 border-[#D13639] text-[#D13639]' 
-                                : spinning
-                                    ? 'bg-[#1E2328] border-2 border-[#C8AA6E] text-[#C8AA6E] shadow-[0_0_15px_#C8AA6E/30] hover:bg-[#C8AA6E]/20'
-                                    : 'bg-[#1E2328] border-2 border-[#0AC8B9] text-[#0AC8B9] hover:bg-[#0AC8B9] hover:text-[#010A13] hover:shadow-[0_0_20px_#0AC8B9]'}
+                        ${cooldown 
+                            ? 'bg-[#1E2328] border-2 border-[#5B5A56] text-[#5B5A56] cursor-not-allowed'
+                            : isGambling 
+                                ? 'bg-[#C8AA6E] border-2 border-[#C8AA6E] text-[#010A13] hover:bg-[#F0E6D2] hover:shadow-[0_0_20px_#C8AA6E]'
+                                : !spinning && balance < bet 
+                                    ? 'bg-[#D13639]/20 border-2 border-[#D13639] text-[#D13639]' 
+                                    : spinning
+                                        ? 'bg-[#1E2328] border-2 border-[#C8AA6E] text-[#C8AA6E] shadow-[0_0_15px_#C8AA6E/30] hover:bg-[#C8AA6E]/20'
+                                        : 'bg-[#1E2328] border-2 border-[#0AC8B9] text-[#0AC8B9] hover:bg-[#0AC8B9] hover:text-[#010A13] hover:shadow-[0_0_20px_#0AC8B9]'}
                     `}
                 >
-                    {spinning ? 'STOP' : (lastWin > 0 ? 'COLECT' : 'JOACĂ')}
+                    {spinning ? 'STOP' : (isGambling ? 'COLECT' : (lastWin > 0 ? 'COLECT' : 'JOACĂ'))}
                 </button>
             </div>
         </div>
