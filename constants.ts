@@ -17,7 +17,7 @@ export const SYMBOLS: SlotSymbol[] = [
     id: 0, 
     name: 'GHERGHE', 
     icon: 'crown',
-    image: '/assets/symbols/1.png', 
+    image: '/assets/symbols/7.png', 
     color: 'text-purple-400', 
     value: [0, 0, 50, 500, 2000], 
     weight: 30 
@@ -78,7 +78,7 @@ export const SYMBOLS: SlotSymbol[] = [
   },
   { 
     id: 100, 
-    name: 'CIPI (SCATTER)', 
+    name: 'CIPI', 
     icon: 'hexagon', 
     image: '/assets/symbols/21.png',
     color: 'text-cyan-400', 
